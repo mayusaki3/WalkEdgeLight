@@ -1,0 +1,21 @@
+{
+  "id": "p0-a-20mm",
+  "phase": "P0-A",
+  "scene": {
+    "type": "single-step",
+    "stepHeightMetres": 0.020,
+    "edgeZMetres": 1.0
+  },
+  "camera": {
+    "heightMetres": 1.2,
+    "motion": "static"
+  },
+  "depth": {
+    "generator": "cpu-raycast-perfect",
+    "width": 160,
+    "height": 120,
+    "representation": "Z_DEPTH",
+    "maxRangeMetres": 10.0
+  },
+  "sensorNoise": "none"
+}
