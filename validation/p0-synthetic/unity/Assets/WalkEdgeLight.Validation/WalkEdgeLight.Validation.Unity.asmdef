@@ -1,0 +1,16 @@
+{
+  "name": "WalkEdgeLight.Validation.Unity",
+  "rootNamespace": "WalkEdgeLight.Validation.UnitySimulation",
+  "references": [
+    "WalkEdgeLight.Validation.Core"
+  ],
+  "includePlatforms": [],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false
+}
