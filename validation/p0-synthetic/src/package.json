@@ -1,0 +1,7 @@
+{
+  "name": "com.walkedgelight.validation.core",
+  "version": "0.0.1",
+  "displayName": "WalkEdgeLight Validation Core",
+  "description": "Unity-independent sensor, reconstruction, and evaluation code for WalkEdgeLight validation.",
+  "unity": "6000.3"
+}
