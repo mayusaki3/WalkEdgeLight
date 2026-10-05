@@ -1,3 +1,5 @@
 {
-  "dependencies": {}
+  "dependencies": {
+    "com.walkedgelight.validation.core": "file:../../src"
+  }
 }
