@@ -1,7 +1,7 @@
 using UnityEngine;
 
-namespace WalkEdgeLight.Validation.UnitySimulation;
-
+namespace WalkEdgeLight.Validation.UnitySimulation
+{
 public readonly struct SingleStepGroundTruth
 {
     public SingleStepGroundTruth(float edgeZMetres, float heightDifferenceMetres)
@@ -18,5 +18,6 @@ public readonly struct SingleStepGroundTruth
     public Vector3 ReferenceSurfaceNormalWorld { get; }
 
     public static SingleStepGroundTruth FromSceneDefinition(SingleStepScene scene)
-        => new(scene.EdgeZMetres, -scene.StepHeightMetres);
+        => new SingleStepGroundTruth(scene.EdgeZMetres, -scene.StepHeightMetres);
+}
 }
