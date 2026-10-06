@@ -1,12 +1,10 @@
 using System.Numerics;
-
-namespace WalkEdgeLight.Validation.Sensors;
-
-/// <summary>Camera-local to WalkEdgeLight world-space transform.</summary>
-public readonly record struct Pose3(
-    Vector3 Position,
-    Quaternion Rotation)
+namespace WalkEdgeLight.Validation.Sensors
 {
-    public Vector3 TransformPoint(Vector3 cameraPoint)
-        => Position + Vector3.Transform(cameraPoint, Rotation);
+    public readonly struct Pose3
+    {
+        public Pose3(Vector3 position, Quaternion rotation) { Position=position; Rotation=rotation; }
+        public Vector3 Position { get; } public Quaternion Rotation { get; }
+        public Vector3 TransformPoint(Vector3 cameraPoint) { return Position + Vector3.Transform(cameraPoint, Rotation); }
+    }
 }
