@@ -4,8 +4,8 @@ using WalkEdgeLight.Validation.Sensors;
 using NumericsQuaternion = System.Numerics.Quaternion;
 using NumericsVector3 = System.Numerics.Vector3;
 
-namespace WalkEdgeLight.Validation.UnitySimulation;
-
+namespace WalkEdgeLight.Validation.UnitySimulation
+{
 public static class P0ASensorFrameAdapter
 {
     public static SensorFrame Create(
@@ -46,4 +46,5 @@ public static class P0ASensorFrameAdapter
 
         return new CameraIntrinsics(fx, fy, cx, cy, width, height);
     }
+}
 }
