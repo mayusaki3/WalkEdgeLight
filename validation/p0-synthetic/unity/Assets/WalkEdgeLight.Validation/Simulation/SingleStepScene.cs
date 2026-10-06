@@ -1,7 +1,7 @@
 using UnityEngine;
 
-namespace WalkEdgeLight.Validation.UnitySimulation;
-
+namespace WalkEdgeLight.Validation.UnitySimulation
+{
 public sealed class SingleStepScene : MonoBehaviour
 {
     [SerializeField] private float stepHeightMetres = 0.020f;
@@ -52,4 +52,5 @@ public sealed class SingleStepScene : MonoBehaviour
             else DestroyImmediate(child);
         }
     }
+}
 }
