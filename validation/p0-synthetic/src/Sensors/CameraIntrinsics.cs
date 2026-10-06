@@ -1,9 +1,10 @@
-namespace WalkEdgeLight.Validation.Sensors;
-
-public readonly record struct CameraIntrinsics(
-    double Fx,
-    double Fy,
-    double Cx,
-    double Cy,
-    int Width,
-    int Height);
+namespace WalkEdgeLight.Validation.Sensors
+{
+    public readonly struct CameraIntrinsics
+    {
+        public CameraIntrinsics(double fx,double fy,double cx,double cy,int width,int height)
+        { Fx=fx; Fy=fy; Cx=cx; Cy=cy; Width=width; Height=height; }
+        public double Fx { get; } public double Fy { get; } public double Cx { get; } public double Cy { get; }
+        public int Width { get; } public int Height { get; }
+    }
+}
