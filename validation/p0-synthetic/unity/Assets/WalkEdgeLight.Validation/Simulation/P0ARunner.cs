@@ -3,8 +3,8 @@ using System.Numerics;
 using UnityEngine;
 using WalkEdgeLight.Validation.Reconstruction;
 
-namespace WalkEdgeLight.Validation.UnitySimulation;
-
+namespace WalkEdgeLight.Validation.UnitySimulation
+{
 public sealed class P0ARunner : MonoBehaviour
 {
     [SerializeField] private SingleStepScene sceneDefinition;
@@ -69,4 +69,5 @@ public sealed class P0ARunner : MonoBehaviour
             $"meanReconstructionResidual={meanResidual * 1000.0:F6} mm, " +
             $"maxReconstructionResidual={reconstructionResidualMax * 1000.0:F6} mm");
     }
+}
 }
