@@ -1,7 +1,7 @@
 using UnityEngine;
 
-namespace WalkEdgeLight.Validation.UnitySimulation;
-
+namespace WalkEdgeLight.Validation.UnitySimulation
+{
 public sealed class CpuRaycastPerfectDepthGenerator
 {
     public GeneratedDepth Generate(
@@ -34,7 +34,7 @@ public sealed class CpuRaycastPerfectDepthGenerator
                 // RaycastHit.distance is RANGE, not Z_DEPTH. Convert the world-space
                 // intersection back into camera space and store its +Z component.
                 var cameraPoint = camera.transform.InverseTransformPoint(hit.point);
-                if (cameraPoint.z <= 0f || !float.IsFinite(cameraPoint.z))
+                if (cameraPoint.z <= 0f || !(!float.IsNaN(cameraPoint.z) && !float.IsInfinity(cameraPoint.z)))
                     continue;
 
                 depth[index] = cameraPoint.z;
@@ -60,4 +60,5 @@ public readonly struct GeneratedDepth
     public int Height { get; }
     public float[] DepthMetres { get; }
     public bool[] Valid { get; }
+}
 }
