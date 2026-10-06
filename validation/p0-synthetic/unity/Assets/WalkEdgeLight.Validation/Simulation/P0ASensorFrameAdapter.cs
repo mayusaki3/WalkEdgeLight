@@ -37,8 +37,10 @@ public static class P0ASensorFrameAdapter
     private static CameraIntrinsics CreateIntrinsics(Camera camera, int width, int height)
     {
         // Unity vertical FOV -> pinhole intrinsics at the synthetic depth resolution.
+        // The synthetic image aspect may differ from the Camera/Game View aspect.
+        // ViewportPointToRay uses camera.aspect, so fx must compensate for it.
         var fy = 0.5 * height / System.Math.Tan(camera.fieldOfView * Mathf.Deg2Rad * 0.5);
-        var fx = fy * camera.aspect * width / height;
+        var fx = fy * ((double)width / height) / camera.aspect;
 
         // Pixel-center convention: image center lies between the central pixels.
         var cx = width * 0.5;
