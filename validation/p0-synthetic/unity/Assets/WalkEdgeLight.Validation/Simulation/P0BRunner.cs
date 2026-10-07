@@ -1,6 +1,6 @@
 using System;
 using System.Collections.Generic;
-using System.Numerics;
+using NumericsVector3 = System.Numerics.Vector3;
 using UnityEngine;
 using WalkEdgeLight.Validation.Reconstruction;
 
@@ -31,7 +31,7 @@ namespace WalkEdgeLight.Validation.UnitySimulation
 
             const float edgeExclusionMetres = 0.10f;
             const float sampleBandMetres = 0.60f;
-            var samples = new List<Vector3>();
+            var samples = new List<NumericsVector3>();
 
             for (var v = 0; v < depthHeight; ++v)
             {
@@ -50,7 +50,7 @@ namespace WalkEdgeLight.Validation.UnitySimulation
             }
 
             var plane = GroundPlaneEstimator.FitLeastSquares(samples);
-            var dot = Math.Max(-1.0, Math.Min(1.0, Vector3.Dot(plane.Normal, Vector3.UnitY)));
+            var dot = Math.Max(-1.0, Math.Min(1.0, NumericsVector3.Dot(plane.Normal, NumericsVector3.UnitY)));
             var normalErrorDegrees = Math.Acos(dot) * 180.0 / Math.PI;
             var groundHeight = -plane.Offset / plane.Normal.Y;
 
