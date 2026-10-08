@@ -17,10 +17,27 @@ namespace WalkEdgeLight.Validation.UnitySimulation
         [ContextMenu("Run P0-B")]
         public void Run()
         {
+            RunInternal(false);
+        }
+
+        [ContextMenu("Run P0-B Slope")]
+        public void RunSlope()
+        {
+            RunInternal(true);
+        }
+
+        private void RunInternal(bool slope)
+        {
             if (sceneDefinition == null) throw new InvalidOperationException("SingleStepScene is not assigned.");
             if (sensorCamera == null) throw new InvalidOperationException("Sensor Camera is not assigned.");
 
             sceneDefinition.Build();
+            if (slope)
+            {
+                var nearFloor = sceneDefinition.transform.Find("NearFloor");
+                if (nearFloor == null) throw new InvalidOperationException("NearFloor is missing.");
+                nearFloor.localRotation = Quaternion.Euler(8f, 0f, 0f);
+            }
             Physics.SyncTransforms();
 
             var truth = SingleStepGroundTruth.FromSceneDefinition(sceneDefinition);
@@ -50,18 +67,38 @@ namespace WalkEdgeLight.Validation.UnitySimulation
             }
 
             var plane = GroundPlaneEstimator.FitLeastSquares(samples);
-            var dot = Math.Max(-1.0, Math.Min(1.0, NumericsVector3.Dot(plane.Normal, NumericsVector3.UnitY)));
+            var expectedUnity = slope
+                ? sceneDefinition.transform.Find("NearFloor").up
+                : UnityEngine.Vector3.up;
+            var expectedNormal = new NumericsVector3(expectedUnity.x, expectedUnity.y, expectedUnity.z);
+            var dot = Math.Max(-1.0, Math.Min(1.0, NumericsVector3.Dot(plane.Normal, expectedNormal)));
             var normalErrorDegrees = Math.Acos(dot) * 180.0 / Math.PI;
             var groundHeight = -plane.Offset / plane.Normal.Y;
 
+            double squaredErrorSum = 0.0;
+            foreach (var point in samples)
+            {
+                var distance = plane.SignedDistance(point);
+                squaredErrorSum += distance * distance;
+            }
+            var rmsMillimetres = Math.Sqrt(squaredErrorSum / samples.Count) * 1000.0;
+
             Debug.Log(
-                "[WalkEdgeLight P0-B] samples=" + samples.Count +
+                (slope ? "[WalkEdgeLight P0-B Slope] samples=" : "[WalkEdgeLight P0-B] samples=") + samples.Count +
                 ", normal=(" +
                 plane.Normal.X.ToString("F8") + "," +
                 plane.Normal.Y.ToString("F8") + "," +
                 plane.Normal.Z.ToString("F8") + ")" +
                 ", normalError=" + normalErrorDegrees.ToString("F8") + " deg" +
-                ", groundHeight=" + (groundHeight * 1000.0).ToString("F6") + " mm");
+                ", groundHeight=" + (groundHeight * 1000.0).ToString("F6") + " mm" +
+                ", planeRms=" + rmsMillimetres.ToString("F6") + " mm");
+
+            if (slope)
+            {
+                // Restore the standard scene for subsequent P0-A/P0-B runs.
+                sceneDefinition.Build();
+                Physics.SyncTransforms();
+            }
         }
     }
 }
