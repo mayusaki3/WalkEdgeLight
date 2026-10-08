@@ -85,6 +85,17 @@ namespace WalkEdgeLight.Validation.Editor
             runner.Run();
         }
 
+        [MenuItem("WalkEdgeLight/Probe/Run P0-B Slope")]
+        internal static void RunP0BSlope()
+        {
+            GameObject root = GameObject.Find(RootName);
+            Require(root != null, "Run WalkEdgeLight > Probe > Setup P0-A first");
+
+            P0BRunner runner = root.GetComponent<P0BRunner>();
+            Require(runner != null, "P0BRunner component is missing; rerun Setup P0-A");
+            runner.RunSlope();
+        }
+
         private static void SetObject(
             UnityEngine.Object target,
             string propertyName,
