@@ -10,6 +10,8 @@ namespace WalkEdgeLight.Validation.UnitySimulation
     {
         [SerializeField] private SingleStepScene sceneDefinition;
         [SerializeField] private Camera sensorCamera;
+        private double lastLowerBound = double.NaN;
+        private double lastUpperBound = double.NaN;
         private const int Strips = 8;
         private const int Bins = 80;
         private const float BinWidth = 0.025f;
@@ -36,7 +38,8 @@ namespace WalkEdgeLight.Validation.UnitySimulation
         public void RunSweep()
         {
             float[] offsets = { 0f, 0.005f, 0.010f, 0.013f, 0.020f, 0.025f };
-            int detected = 0;
+            int detected = 0, covered = 0, bounded = 0;
+            double sumWidth = 0;
             double sumAbs = 0, maxAbs = 0;
             foreach (float offset in offsets)
             {
@@ -48,22 +51,36 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                     continue;
                 }
                 ++detected;
+                double truthZ = sceneDefinition.EdgeZMetres + offset;
+                bool hasBounds = !double.IsNaN(lastLowerBound) && !double.IsNaN(lastUpperBound);
+                bool containsTruth = hasBounds && lastLowerBound <= truthZ && truthZ <= lastUpperBound;
+                if (hasBounds) { ++bounded; sumWidth += (lastUpperBound - lastLowerBound) * 1000.0; }
+                if (containsTruth) ++covered;
                 double absolute = Math.Abs(error);
                 sumAbs += absolute;
                 maxAbs = Math.Max(maxAbs, absolute);
                 Debug.Log("[WalkEdgeLight P0-E Sweep] edgeTruth=" +
                     (sceneDefinition.EdgeZMetres + offset).ToString("F4") +
-                    " m, positionError=" + error.ToString("F3") + " mm");
+                    " m, positionError=" + error.ToString("F3") + " mm" +
+                    ", boundNear=" + (hasBounds ? lastLowerBound.ToString("F6") : "N/A") + " m" +
+                    ", boundFar=" + (hasBounds ? lastUpperBound.ToString("F6") : "N/A") + " m" +
+                    ", boundWidth=" + (hasBounds ? ((lastUpperBound - lastLowerBound) * 1000).ToString("F3") : "N/A") + " mm" +
+                    ", containsTruth=" + containsTruth);
             }
             sceneDefinition.Build();
             Physics.SyncTransforms();
             Debug.Log("[WalkEdgeLight P0-E Sweep] summary=" + detected + "/" + offsets.Length +
                 ", meanAbsError=" + (detected > 0 ? (sumAbs / detected).ToString("F3") : "N/A") +
-                " mm, maxAbsError=" + (detected > 0 ? maxAbs.ToString("F3") : "N/A") + " mm");
+                " mm, maxAbsError=" + (detected > 0 ? maxAbs.ToString("F3") : "N/A") +
+                " mm, bounded=" + bounded + "/" + detected +
+                ", coverage=" + covered + "/" + offsets.Length +
+                ", meanBoundWidth=" + (bounded > 0 ? (sumWidth / bounded).ToString("F3") : "N/A") + " mm");
         }
 
         private double RunInternal(bool slanted, float edgeOffset = 0f, bool verbose = true)
         {
+            lastLowerBound = double.NaN;
+            lastUpperBound = double.NaN;
             if (sceneDefinition == null || sensorCamera == null)
                 throw new InvalidOperationException("P0-D references missing.");
             if (slanted) sceneDefinition.BuildSlanted(0.2f);
@@ -94,6 +111,9 @@ namespace WalkEdgeLight.Validation.UnitySimulation
             var plane = GroundPlaneEstimator.FitLeastSquares(groundPoints);
             var xs = new List<double>();
             var zs = new List<double>();
+            double commonLower = double.NegativeInfinity;
+            double commonUpper = double.PositiveInfinity;
+            int boundedStrips = 0;
             for (int s = 0; s < Strips; ++s)
             {
                 var means = new double[Bins];
@@ -141,6 +161,12 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                     }
                 var refinedZ = double.IsNegativeInfinity(nearMax) || double.IsPositiveInfinity(farMin)
                     || farMin < nearMax ? coarseZ : (nearMax + farMin) * 0.5;
+                if (!double.IsNegativeInfinity(nearMax) && !double.IsPositiveInfinity(farMin) && farMin >= nearMax)
+                {
+                    commonLower = Math.Max(commonLower, nearMax);
+                    commonUpper = Math.Min(commonUpper, farMin);
+                    ++boundedStrips;
+                }
                 xs.Add(-1.0 + (s + 0.5) * 0.25);
                 zs.Add(refinedZ);
             }
@@ -148,6 +174,11 @@ namespace WalkEdgeLight.Validation.UnitySimulation
             {
                 if (verbose) Debug.Log((slanted ? "[WalkEdgeLight P0-D Slanted]" : edgeOffset != 0f ? "[WalkEdgeLight P0-E Offset]" : "[WalkEdgeLight P0-D]") + " detection=NONE, stripsDetected=" + xs.Count);
                 return double.NaN;
+            }
+            if (!slanted && boundedStrips == xs.Count && commonLower <= commonUpper)
+            {
+                lastLowerBound = commonLower;
+                lastUpperBound = commonUpper;
             }
             double mx = 0, mz = 0;
             for (int i = 0; i < xs.Count; ++i) { mx += xs[i]; mz += zs[i]; }
