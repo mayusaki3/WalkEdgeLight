@@ -146,6 +146,68 @@ namespace WalkEdgeLight.Validation.UnitySimulation
             Physics.SyncTransforms();
         }
 
+        [ContextMenu("Run P0-E Pose")]
+        public void RunPose()
+        {
+            if (sceneDefinition == null || sensorCamera == null)
+                throw new InvalidOperationException("P0-E references missing.");
+            float[] heights = { 1.0f, 1.2f, 1.4f };
+            float[] pitches = { 35f, 45f, 55f };
+            float[] offsets = { 0f, 0.005f, 0.010f, 0.013f, 0.020f, 0.025f };
+            Vector3 originalPosition = sensorCamera.transform.position;
+            Quaternion originalRotation = sensorCamera.transform.rotation;
+            try
+            {
+                foreach (float height in heights)
+                    foreach (float pitch in pitches)
+                    {
+                        sensorCamera.transform.position = new Vector3(0f, height, 0f);
+                        sensorCamera.transform.rotation = Quaternion.Euler(pitch, 0f, 0f);
+                        int detected = 0, bounded = 0, covered = 0;
+                        double sumWidth = 0, sumAbs = 0, maxAbs = 0;
+                        foreach (float offset in offsets)
+                        {
+                            double oldError = RunInternal(false, offset, false, 320, 240);
+                            double truthZ = sceneDefinition.EdgeZMetres + offset;
+                            bool hasBounds = !double.IsNaN(lastLowerBound) &&
+                                !double.IsNaN(lastProjectedUpper) && lastProjectedUpper >= lastLowerBound;
+                            bool contains = hasBounds && lastLowerBound <= truthZ && truthZ <= lastProjectedUpper;
+                            if (!double.IsNaN(oldError)) ++detected;
+                            if (hasBounds)
+                            {
+                                ++bounded;
+                                sumWidth += (lastProjectedUpper - lastLowerBound) * 1000.0;
+                                double absError = Math.Abs(lastProjectedMidpointError);
+                                sumAbs += absError;
+                                maxAbs = Math.Max(maxAbs, absError);
+                            }
+                            if (contains) ++covered;
+                            Debug.Log("[WalkEdgeLight P0-E Pose] height=" + height.ToString("F2") +
+                                " m, pitch=" + pitch.ToString("F0") + " deg, edgeTruth=" + truthZ.ToString("F4") +
+                                " m, detected=" + !double.IsNaN(oldError) +
+                                ", bounded=" + hasBounds + ", containsTruth=" + contains +
+                                ", width=" + (hasBounds ? ((lastProjectedUpper - lastLowerBound) * 1000).ToString("F3") : "N/A") +
+                                " mm, midpointError=" + (hasBounds ? lastProjectedMidpointError.ToString("F3") : "N/A") + " mm");
+                        }
+                        Debug.Log("[WalkEdgeLight P0-E Pose] summary height=" + height.ToString("F2") +
+                            " m, pitch=" + pitch.ToString("F0") + " deg, size=320x240" +
+                            ", detected=" + detected + "/" + offsets.Length +
+                            ", bounded=" + bounded + "/" + offsets.Length +
+                            ", coverage=" + covered + "/" + offsets.Length +
+                            ", meanWidth=" + (bounded > 0 ? (sumWidth / bounded).ToString("F3") : "N/A") +
+                            " mm, midpointMAE=" + (bounded > 0 ? (sumAbs / bounded).ToString("F3") : "N/A") +
+                            " mm, maxAbsError=" + (bounded > 0 ? maxAbs.ToString("F3") : "N/A") + " mm");
+                    }
+            }
+            finally
+            {
+                sensorCamera.transform.position = originalPosition;
+                sensorCamera.transform.rotation = originalRotation;
+                sceneDefinition.Build();
+                Physics.SyncTransforms();
+            }
+        }
+
         private double RunInternal(bool slanted, float edgeOffset = 0f, bool verbose = true, int imageWidth = 160, int imageHeight = 120)
         {
             lastLowerBound = double.NaN;
