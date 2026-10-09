@@ -17,9 +17,21 @@ namespace WalkEdgeLight.Validation.UnitySimulation
         [ContextMenu("Run P0-D")]
         public void Run()
         {
+            RunInternal(false);
+        }
+
+        [ContextMenu("Run P0-D Slanted")]
+        public void RunSlanted()
+        {
+            RunInternal(true);
+        }
+
+        private void RunInternal(bool slanted)
+        {
             if (sceneDefinition == null || sensorCamera == null)
                 throw new InvalidOperationException("P0-D references missing.");
-            sceneDefinition.Build();
+            if (slanted) sceneDefinition.BuildSlanted(0.2f);
+            else sceneDefinition.Build();
             Physics.SyncTransforms();
             var depth = new CpuRaycastPerfectDepthGenerator().Generate(sensorCamera, 160, 120, 10f);
             var frame = P0ASensorFrameAdapter.Create(
@@ -81,7 +93,7 @@ namespace WalkEdgeLight.Validation.UnitySimulation
             }
             if (xs.Count < 2)
             {
-                Debug.Log("[WalkEdgeLight P0-D] detection=NONE, stripsDetected=" + xs.Count);
+                Debug.Log((slanted ? "[WalkEdgeLight P0-D Slanted]" : "[WalkEdgeLight P0-D]") + " detection=NONE, stripsDetected=" + xs.Count);
                 return;
             }
             double mx = 0, mz = 0;
@@ -103,13 +115,15 @@ namespace WalkEdgeLight.Validation.UnitySimulation
             }
             rms = Math.Sqrt(rms / xs.Count);
             var truth = SingleStepGroundTruth.FromSceneDefinition(sceneDefinition);
-            Debug.Log("[WalkEdgeLight P0-D] detection=EDGE" +
+            Debug.Log((slanted ? "[WalkEdgeLight P0-D Slanted]" : "[WalkEdgeLight P0-D]") + " detection=EDGE" +
                 ", stripsDetected=" + xs.Count + "/" + Strips +
                 ", slope=" + slope.ToString("F6") +
                 ", edgeZAtX0=" + intercept.ToString("F4") + " m" +
                 ", edgeTruth=" + truth.EdgeZMetres.ToString("F4") + " m" +
                 ", positionError=" + ((intercept - truth.EdgeZMetres) * 1000).ToString("F3") + " mm" +
-                ", lineRms=" + (rms * 1000).ToString("F3") + " mm");
+                ", lineRms=" + (rms * 1000).ToString("F3") + " mm" +
+                (slanted ? ", slopeTruth=0.200000, slopeError=" + (slope - 0.2).ToString("F6") : ""));
+            if (slanted) { sceneDefinition.Build(); Physics.SyncTransforms(); }
         }
     }
 }
