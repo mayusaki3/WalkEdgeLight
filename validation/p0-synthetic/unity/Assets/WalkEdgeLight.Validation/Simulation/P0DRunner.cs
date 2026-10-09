@@ -95,8 +95,24 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                     }
                 }
                 if (bestBin < 0) continue;
+                // Refine the coarse 25 mm bin using raw reconstructed points.
+                // Only classify samples close to the candidate edge; do not use truth.
+                var coarseZ = bestBin * BinWidth;
+                double nearMax = double.NegativeInfinity;
+                double farMin = double.PositiveInfinity;
+                for (int b = Math.Max(0, bestBin - 4); b < Math.Min(Bins, bestBin + 5); ++b)
+                    foreach (var p in cells[s, b])
+                    {
+                        var distance = plane.SignedDistance(p);
+                        if (distance > -0.005 && distance < 0.005 && p.Z <= coarseZ + 0.10)
+                            nearMax = Math.Max(nearMax, p.Z);
+                        else if (distance < -0.010 && p.Z >= coarseZ - 0.10)
+                            farMin = Math.Min(farMin, p.Z);
+                    }
+                var refinedZ = double.IsNegativeInfinity(nearMax) || double.IsPositiveInfinity(farMin)
+                    || farMin < nearMax ? coarseZ : (nearMax + farMin) * 0.5;
                 xs.Add(-1.0 + (s + 0.5) * 0.25);
-                zs.Add(bestBin * BinWidth);
+                zs.Add(refinedZ);
             }
             if (xs.Count < 2)
             {
@@ -123,7 +139,7 @@ namespace WalkEdgeLight.Validation.UnitySimulation
             rms = Math.Sqrt(rms / xs.Count);
             var truth = SingleStepGroundTruth.FromSceneDefinition(sceneDefinition);
             var expectedEdge = truth.EdgeZMetres + edgeOffset;
-            Debug.Log((slanted ? "[WalkEdgeLight P0-D Slanted]" : "[WalkEdgeLight P0-D]") + " detection=EDGE" +
+            Debug.Log((slanted ? "[WalkEdgeLight P0-D Slanted]" : edgeOffset != 0f ? "[WalkEdgeLight P0-E Offset]" : "[WalkEdgeLight P0-D]") + " detection=EDGE" +
                 ", stripsDetected=" + xs.Count + "/" + Strips +
                 ", slope=" + slope.ToString("F6") +
                 ", edgeZAtX0=" + intercept.ToString("F4") + " m" +
