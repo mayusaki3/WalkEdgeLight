@@ -216,6 +216,76 @@ namespace WalkEdgeLight.Validation.UnitySimulation
             }
         }
 
+        // P0-F-1: fixed-seed synthetic Z-depth noise; independent of ground truth.
+        private static GeneratedDepth AddGaussianDepthNoise(GeneratedDepth source, double sigmaMetres, int seed)
+        {
+            var values = (float[])source.DepthMetres.Clone();
+            var valid = (bool[])source.Valid.Clone();
+            var random = new System.Random(seed);
+            for (int i = 0; i < values.Length; ++i)
+            {
+                if (!valid[i]) continue;
+                // Box-Muller with a deterministic per-run random sequence.
+                double u1 = Math.Max(random.NextDouble(), 1e-12);
+                double u2 = random.NextDouble();
+                double standardNormal = Math.Sqrt(-2.0 * Math.Log(u1)) *
+                    Math.Cos(2.0 * Math.PI * u2);
+                double noisy = values[i] + sigmaMetres * standardNormal;
+                if (noisy <= 0 || double.IsNaN(noisy) || double.IsInfinity(noisy))
+                {
+                    valid[i] = false;
+                    values[i] = 0f;
+                }
+                else values[i] = (float)noisy;
+            }
+            return new GeneratedDepth(source.Width, source.Height, values, valid);
+        }
+
+        [ContextMenu("Run P0-F Gaussian")]
+        public void RunGaussianNoise()
+        {
+            if (sceneDefinition == null || sensorCamera == null)
+                throw new InvalidOperationException("P0-F references missing.");
+            double[] sigmaMm = { 0.0, 0.5, 1.0, 2.0 };
+            float[] offsets = { 0f, 0.005f, 0.010f, 0.013f, 0.020f, 0.025f };
+            for (int level = 0; level < sigmaMm.Length; ++level)
+            {
+                int detected = 0, bounded = 0, covered = 0;
+                double sumAbsError = 0, maxAbsError = 0;
+                for (int k = 0; k < offsets.Length; ++k)
+                {
+                    double error = RunInternal(false, offsets[k], false, 320, 240,
+                        false, sigmaMm[level] * 0.001, 20261009 + k);
+                    bool hasBounds = !double.IsNaN(lastLowerBound) &&
+                        !double.IsNaN(lastProjectedUpper) &&
+                        lastProjectedUpper >= lastLowerBound;
+                    double truthZ = sceneDefinition.EdgeZMetres + offsets[k];
+                    if (!double.IsNaN(error)) ++detected;
+                    if (hasBounds)
+                    {
+                        ++bounded;
+                        if (ContainsWithTolerance(lastLowerBound, lastProjectedUpper, truthZ)) ++covered;
+                        double absError = Math.Abs(lastProjectedMidpointError);
+                        sumAbsError += absError;
+                        maxAbsError = Math.Max(maxAbsError, absError);
+                    }
+                    Debug.Log("[WalkEdgeLight P0-F Gaussian] sigma=" + sigmaMm[level].ToString("F1") +
+                        " mm, edgeTruth=" + truthZ.ToString("F4") +
+                        " m, detected=" + !double.IsNaN(error) +
+                        ", bounded=" + hasBounds +
+                        ", midpointError=" + (hasBounds ? lastProjectedMidpointError.ToString("F3") : "N/A") + " mm");
+                }
+                Debug.Log("[WalkEdgeLight P0-F Gaussian] summary sigma=" +
+                    sigmaMm[level].ToString("F1") + " mm, detected=" + detected +
+                    "/6, bounded=" + bounded + "/6, toleranceCoverage=" + covered +
+                    "/6, midpointMAE=" + (bounded > 0 ? (sumAbsError / bounded).ToString("F3") : "N/A") +
+                    " mm, midpointMaxAbsError=" + (bounded > 0 ? maxAbsError.ToString("F3") : "N/A") +
+                    " mm, seedBase=20261009");
+            }
+            sceneDefinition.Build();
+            Physics.SyncTransforms();
+        }
+
         [ContextMenu("Run P0-E Bounds Regression")]
         public void RunBoundsRegression()
         {
@@ -364,7 +434,7 @@ namespace WalkEdgeLight.Validation.UnitySimulation
             }
         }
 
-        private double RunInternal(bool slanted, float edgeOffset = 0f, bool verbose = true, int imageWidth = 160, int imageHeight = 120, bool diagnoseBounds = false)
+        private double RunInternal(bool slanted, float edgeOffset = 0f, bool verbose = true, int imageWidth = 160, int imageHeight = 120, bool diagnoseBounds = false, double gaussianSigmaMetres = 0, int gaussianSeed = 20261009)
         {
             lastLowerBound = double.NaN;
             lastUpperBound = double.NaN;
@@ -377,6 +447,8 @@ namespace WalkEdgeLight.Validation.UnitySimulation
             else sceneDefinition.Build();
             Physics.SyncTransforms();
             var depth = new CpuRaycastPerfectDepthGenerator().Generate(sensorCamera, imageWidth, imageHeight, 10f);
+            if (gaussianSigmaMetres > 0)
+                depth = AddGaussianDepthNoise(depth, gaussianSigmaMetres, gaussianSeed);
             var frame = P0ASensorFrameAdapter.Create(
                 0, Time.realtimeSinceStartupAsDouble, sensorCamera, depth);
             var cells = new List<NumericsVector3>[Strips, Bins];
