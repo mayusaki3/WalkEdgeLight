@@ -224,6 +224,16 @@ namespace WalkEdgeLight.Validation.Editor
             runner.RunGaussianNoise();
         }
 
+        [MenuItem("WalkEdgeLight/Probe/Run P0-F Noise Bounds Diagnostic")]
+        internal static void RunP0FNoiseBoundsDiagnostic()
+        {
+            var root = GameObject.Find(RootName);
+            Require(root != null, "Run Setup P0-A first");
+            var runner = root.GetComponent<P0DRunner>();
+            Require(runner != null, "P0DRunner missing");
+            runner.RunNoiseBoundsDiagnostic();
+        }
+
         private static void SetObject(
             UnityEngine.Object target,
             string propertyName,
