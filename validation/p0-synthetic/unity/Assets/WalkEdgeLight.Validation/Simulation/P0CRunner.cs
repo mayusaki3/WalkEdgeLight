@@ -58,23 +58,39 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                 valid[i] = true;
             }
 
-            const int window = 3;
+            // Allow empty depth bins near occlusion boundaries.
+            // Use the closest two populated bins on each side, within 0.20 m.
+            const int searchRadius = 8;
+            const int requiredBins = 2;
             const double threshold = 0.010;
             var bestScore = threshold;
             var bestBin = -1;
             var bestDelta = 0.0;
-            for (var i = 16 + window; i < binCount - window; ++i)
+            var evaluatedCandidates = 0;
+            var validBinCount = 0;
+            for (var i = 0; i < binCount; ++i)
+                if (valid[i]) ++validBinCount;
+
+            for (var i = 16; i < binCount; ++i)
             {
                 double before = 0, after = 0;
-                var complete = true;
-                for (var j = 0; j < window; ++j)
+                var beforeCount = 0;
+                var afterCount = 0;
+                for (var j = 1; j <= searchRadius && i - j >= 0; ++j)
                 {
-                    if (!valid[i - 1 - j] || !valid[i + j]) { complete = false; break; }
-                    before += means[i - 1 - j];
-                    after += means[i + j];
+                    if (!valid[i - j]) continue;
+                    before += means[i - j];
+                    if (++beforeCount == requiredBins) break;
                 }
-                if (!complete) continue;
-                var delta = (after - before) / window;
+                for (var j = 0; j < searchRadius && i + j < binCount; ++j)
+                {
+                    if (!valid[i + j]) continue;
+                    after += means[i + j];
+                    if (++afterCount == requiredBins) break;
+                }
+                if (beforeCount < requiredBins || afterCount < requiredBins) continue;
+                ++evaluatedCandidates;
+                var delta = after / afterCount - before / beforeCount;
                 if (Math.Abs(delta) > bestScore)
                 {
                     bestScore = Math.Abs(delta);
@@ -85,7 +101,10 @@ namespace WalkEdgeLight.Validation.UnitySimulation
 
             if (bestBin < 0)
             {
-                Debug.Log("[WalkEdgeLight P0-C Auto] detection=NONE");
+                Debug.Log("[WalkEdgeLight P0-C Auto] detection=NONE" +
+                    ", validBins=" + validBinCount +
+                    ", evaluatedCandidates=" + evaluatedCandidates +
+                    ", maxAbsDeltaMm=" + (bestScore * 1000.0).ToString("F3"));
                 return;
             }
 
@@ -97,7 +116,9 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                 ", edgeZ=" + edgeMetres.ToString("F4") + " m" +
                 ", edgeTruth=" + truth.EdgeZMetres.ToString("F4") + " m" +
                 ", edgeError=" + ((edgeMetres - truth.EdgeZMetres) * 1000.0).ToString("F3") + " mm" +
-                ", heightDelta=" + (bestDelta * 1000.0).ToString("F3") + " mm");
+                ", heightDelta=" + (bestDelta * 1000.0).ToString("F3") + " mm" +
+                ", validBins=" + validBinCount +
+                ", evaluatedCandidates=" + evaluatedCandidates);
         }
 
         [ContextMenu("Run P0-C")]
