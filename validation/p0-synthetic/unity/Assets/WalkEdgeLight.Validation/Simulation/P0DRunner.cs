@@ -208,7 +208,29 @@ namespace WalkEdgeLight.Validation.UnitySimulation
             }
         }
 
-        private double RunInternal(bool slanted, float edgeOffset = 0f, bool verbose = true, int imageWidth = 160, int imageHeight = 120)
+        [ContextMenu("Run P0-E Bound Diagnostic")]
+        public void RunBoundDiagnostic()
+        {
+            if (sensorCamera == null || sceneDefinition == null)
+                throw new InvalidOperationException("P0-E references missing.");
+            Vector3 originalPosition = sensorCamera.transform.position;
+            Quaternion originalRotation = sensorCamera.transform.rotation;
+            try
+            {
+                sensorCamera.transform.position = new Vector3(0f, 1.2f, 0f);
+                sensorCamera.transform.rotation = Quaternion.Euler(55f, 0f, 0f);
+                RunInternal(false, 0.010f, false, 320, 240, true);
+            }
+            finally
+            {
+                sensorCamera.transform.position = originalPosition;
+                sensorCamera.transform.rotation = originalRotation;
+                sceneDefinition.Build();
+                Physics.SyncTransforms();
+            }
+        }
+
+        private double RunInternal(bool slanted, float edgeOffset = 0f, bool verbose = true, int imageWidth = 160, int imageHeight = 120, bool diagnoseBounds = false)
         {
             lastLowerBound = double.NaN;
             lastUpperBound = double.NaN;
@@ -250,6 +272,10 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                 return double.NaN;
             }
             var plane = GroundPlaneEstimator.FitLeastSquares(groundPoints);
+            if (diagnoseBounds)
+                Debug.Log("[WalkEdgeLight P0-E BoundDiag] groundPoints=" + groundPoints.Count +
+                    ", cameraY=" + sensorCamera.transform.position.y.ToString("F6") +
+                    ", cameraPitch=" + sensorCamera.transform.eulerAngles.x.ToString("F3"));
             var xs = new List<double>();
             var zs = new List<double>();
             double commonLower = double.NegativeInfinity;
@@ -315,6 +341,12 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                             }
                         }
                     }
+                if (diagnoseBounds)
+                    Debug.Log("[WalkEdgeLight P0-E BoundDiag] strip=" + s +
+                        ", bestBin=" + bestBin +
+                        ", nearMax=" + (double.IsNegativeInfinity(nearMax) ? "N/A" : nearMax.ToString("F9")) +
+                        ", farMin=" + (double.IsPositiveInfinity(farMin) ? "N/A" : farMin.ToString("F9")) +
+                        ", projectedUpper=" + (double.IsPositiveInfinity(projectedUpper) ? "N/A" : projectedUpper.ToString("F9")));
                 var refinedZ = double.IsNegativeInfinity(nearMax) || double.IsPositiveInfinity(farMin)
                     || farMin < nearMax ? coarseZ : (nearMax + farMin) * 0.5;
                 if (!double.IsNegativeInfinity(nearMax) && !double.IsPositiveInfinity(farMin) && farMin >= nearMax)
@@ -343,6 +375,13 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                 if (projectedStrips == xs.Count && commonProjectedUpper >= commonLower)
                     lastProjectedUpper = Math.Min(commonUpper, commonProjectedUpper);
             }
+            if (diagnoseBounds)
+                Debug.Log("[WalkEdgeLight P0-E BoundDiag] combinedLower=" +
+                    (double.IsNegativeInfinity(commonLower) ? "N/A" : commonLower.ToString("F9")) +
+                    ", combinedFarUpper=" + (double.IsPositiveInfinity(commonUpper) ? "N/A" : commonUpper.ToString("F9")) +
+                    ", combinedProjectedUpper=" + (double.IsPositiveInfinity(commonProjectedUpper) ? "N/A" : commonProjectedUpper.ToString("F9")) +
+                    ", strips=" + boundedStrips + "/" + projectedStrips + "/" + xs.Count +
+                    ", truthZ=" + (sceneDefinition.EdgeZMetres + edgeOffset).ToString("F9"));
             double mx = 0, mz = 0;
             for (int i = 0; i < xs.Count; ++i) { mx += xs[i]; mz += zs[i]; }
             mx /= xs.Count; mz /= zs.Count;
