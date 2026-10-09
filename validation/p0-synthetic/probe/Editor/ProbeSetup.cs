@@ -45,6 +45,10 @@ namespace WalkEdgeLight.Validation.Editor
                 SetObject(groundPlaneRunner, "sceneDefinition", scene);
                 SetObject(groundPlaneRunner, "sensorCamera", camera);
 
+                var stepRunner = Undo.AddComponent<P0CRunner>(root);
+                SetObject(stepRunner, "sceneDefinition", scene);
+                SetObject(stepRunner, "sensorCamera", camera);
+
                 scene.Build();
                 Physics.SyncTransforms();
 
@@ -94,6 +98,16 @@ namespace WalkEdgeLight.Validation.Editor
             P0BRunner runner = root.GetComponent<P0BRunner>();
             Require(runner != null, "P0BRunner component is missing; rerun Setup P0-A");
             runner.RunSlope();
+        }
+
+        [MenuItem("WalkEdgeLight/Probe/Run P0-C")]
+        internal static void RunP0C()
+        {
+            GameObject root = GameObject.Find(RootName);
+            Require(root != null, "Run Setup P0-A first");
+            P0CRunner runner = root.GetComponent<P0CRunner>();
+            Require(runner != null, "P0CRunner is missing; rerun Setup P0-A");
+            runner.Run();
         }
 
         private static void SetObject(
