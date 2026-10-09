@@ -164,6 +164,16 @@ namespace WalkEdgeLight.Validation.Editor
             runner.RunSweep();
         }
 
+        [MenuItem("WalkEdgeLight/Probe/Run P0-E Resolution")]
+        internal static void RunP0EResolution()
+        {
+            var root = GameObject.Find(RootName);
+            Require(root != null, "Run Setup P0-A first");
+            var runner = root.GetComponent<P0DRunner>();
+            Require(runner != null, "P0DRunner missing");
+            runner.RunResolution();
+        }
+
         private static void SetObject(
             UnityEngine.Object target,
             string propertyName,
