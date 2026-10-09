@@ -13,6 +13,7 @@ namespace WalkEdgeLight.Validation.UnitySimulation
         private double lastLowerBound = double.NaN;
         private double lastUpperBound = double.NaN;
         private double lastProjectedUpper = double.NaN;
+        private double lastProjectedMidpointError = double.NaN;
         private const int Strips = 8;
         private const int Bins = 80;
         private const float BinWidth = 0.025f;
@@ -40,7 +41,8 @@ namespace WalkEdgeLight.Validation.UnitySimulation
         {
             float[] offsets = { 0f, 0.005f, 0.010f, 0.013f, 0.020f, 0.025f };
             int detected = 0, covered = 0, bounded = 0, projectedCovered = 0, projectedBounded = 0;
-            double projectedWidthSum = 0;
+            double projectedWidthSum = 0, projectedAbsSum = 0, projectedMaxAbs = 0;
+            int projectedEstimates = 0;
             double sumWidth = 0;
             double sumAbs = 0, maxAbs = 0;
             foreach (float offset in offsets)
@@ -62,6 +64,13 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                 bool projectedContains = hasProjected && lastLowerBound <= truthZ && truthZ <= lastProjectedUpper;
                 if (hasProjected) { ++projectedBounded; projectedWidthSum += (lastProjectedUpper - lastLowerBound) * 1000.0; }
                 if (projectedContains) ++projectedCovered;
+                if (hasProjected && !double.IsNaN(lastProjectedMidpointError))
+                {
+                    ++projectedEstimates;
+                    double projectedAbs = Math.Abs(lastProjectedMidpointError);
+                    projectedAbsSum += projectedAbs;
+                    projectedMaxAbs = Math.Max(projectedMaxAbs, projectedAbs);
+                }
                 double absolute = Math.Abs(error);
                 sumAbs += absolute;
                 maxAbs = Math.Max(maxAbs, absolute);
@@ -74,7 +83,8 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                     ", containsTruth=" + containsTruth +
                     ", projectedUpper=" + (hasProjected ? lastProjectedUpper.ToString("F6") : "N/A") + " m" +
                     ", projectedWidth=" + (hasProjected ? ((lastProjectedUpper - lastLowerBound) * 1000).ToString("F3") : "N/A") + " mm" +
-                    ", projectedContainsTruth=" + projectedContains);
+                    ", projectedContainsTruth=" + projectedContains +
+                    ", projectedMidpointError=" + (hasProjected ? lastProjectedMidpointError.ToString("F3") : "N/A") + " mm");
             }
             sceneDefinition.Build();
             Physics.SyncTransforms();
@@ -86,7 +96,9 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                 ", meanBoundWidth=" + (bounded > 0 ? (sumWidth / bounded).ToString("F3") : "N/A") +
                 " mm, projectedBounded=" + projectedBounded + "/" + detected +
                 ", projectedCoverage=" + projectedCovered + "/" + offsets.Length +
-                ", meanProjectedWidth=" + (projectedBounded > 0 ? (projectedWidthSum / projectedBounded).ToString("F3") : "N/A") + " mm");
+                ", meanProjectedWidth=" + (projectedBounded > 0 ? (projectedWidthSum / projectedBounded).ToString("F3") : "N/A") +
+                " mm, projectedMidpointMAE=" + (projectedEstimates > 0 ? (projectedAbsSum / projectedEstimates).ToString("F3") : "N/A") +
+                " mm, projectedMidpointMaxAbsError=" + (projectedEstimates > 0 ? projectedMaxAbs.ToString("F3") : "N/A") + " mm");
         }
 
         private double RunInternal(bool slanted, float edgeOffset = 0f, bool verbose = true)
@@ -94,6 +106,7 @@ namespace WalkEdgeLight.Validation.UnitySimulation
             lastLowerBound = double.NaN;
             lastUpperBound = double.NaN;
             lastProjectedUpper = double.NaN;
+            lastProjectedMidpointError = double.NaN;
             if (sceneDefinition == null || sensorCamera == null)
                 throw new InvalidOperationException("P0-D references missing.");
             if (slanted) sceneDefinition.BuildSlanted(0.2f);
@@ -235,6 +248,8 @@ namespace WalkEdgeLight.Validation.UnitySimulation
             rms = Math.Sqrt(rms / xs.Count);
             var truth = SingleStepGroundTruth.FromSceneDefinition(sceneDefinition);
             var expectedEdge = truth.EdgeZMetres + edgeOffset;
+            if (!double.IsNaN(lastProjectedUpper))
+                lastProjectedMidpointError = ((lastLowerBound + lastProjectedUpper) * 0.5 - expectedEdge) * 1000.0;
             if (verbose) Debug.Log((slanted ? "[WalkEdgeLight P0-D Slanted]" : edgeOffset != 0f ? "[WalkEdgeLight P0-E Offset]" : "[WalkEdgeLight P0-D]") + " detection=EDGE" +
                 ", stripsDetected=" + xs.Count + "/" + Strips +
                 ", slope=" + slope.ToString("F6") +
