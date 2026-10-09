@@ -14,6 +14,92 @@ namespace WalkEdgeLight.Validation.UnitySimulation
         [SerializeField] private int depthHeight = 120;
         [SerializeField] private float maxRangeMetres = 10f;
 
+
+        [ContextMenu("Run P0-C Auto")]
+        public void RunAuto()
+        {
+            if (sceneDefinition == null || sensorCamera == null)
+                throw new InvalidOperationException("P0-C references are not assigned.");
+
+            sceneDefinition.Build();
+            Physics.SyncTransforms();
+            var depth = new CpuRaycastPerfectDepthGenerator().Generate(
+                sensorCamera, depthWidth, depthHeight, maxRangeMetres);
+            var frame = P0ASensorFrameAdapter.Create(
+                0, Time.realtimeSinceStartupAsDouble, sensorCamera, depth);
+
+            const float binWidth = 0.025f;
+            const int binCount = 80;
+            var bins = new List<NumericsVector3>[binCount];
+            for (var i = 0; i < binCount; ++i) bins[i] = new List<NumericsVector3>();
+            for (var v = 0; v < depthHeight; ++v)
+                for (var u = 0; u < depthWidth; ++u)
+                {
+                    var p = PointReconstructor.ReconstructWorldPoint(frame, u, v);
+                    if (!p.HasValue) continue;
+                    var bin = (int)Math.Floor(p.Value.Z / binWidth);
+                    if (bin >= 0 && bin < binCount) bins[bin].Add(p.Value);
+                }
+
+            // Fixed near-field reference: independent of the known edge location.
+            var reference = new List<NumericsVector3>();
+            for (var i = 0; i < 16; ++i) reference.AddRange(bins[i]);
+            if (reference.Count < 3) throw new InvalidOperationException("Insufficient reference ground.");
+            var plane = GroundPlaneEstimator.FitLeastSquares(reference);
+
+            var means = new double[binCount];
+            var valid = new bool[binCount];
+            for (var i = 0; i < binCount; ++i)
+            {
+                if (bins[i].Count < 10) continue;
+                double sum = 0;
+                foreach (var p in bins[i]) sum += plane.SignedDistance(p);
+                means[i] = sum / bins[i].Count;
+                valid[i] = true;
+            }
+
+            const int window = 3;
+            const double threshold = 0.010;
+            var bestScore = threshold;
+            var bestBin = -1;
+            var bestDelta = 0.0;
+            for (var i = 16 + window; i < binCount - window; ++i)
+            {
+                double before = 0, after = 0;
+                var complete = true;
+                for (var j = 0; j < window; ++j)
+                {
+                    if (!valid[i - 1 - j] || !valid[i + j]) { complete = false; break; }
+                    before += means[i - 1 - j];
+                    after += means[i + j];
+                }
+                if (!complete) continue;
+                var delta = (after - before) / window;
+                if (Math.Abs(delta) > bestScore)
+                {
+                    bestScore = Math.Abs(delta);
+                    bestBin = i;
+                    bestDelta = delta;
+                }
+            }
+
+            if (bestBin < 0)
+            {
+                Debug.Log("[WalkEdgeLight P0-C Auto] detection=NONE");
+                return;
+            }
+
+            var edgeMetres = bestBin * binWidth;
+            // Ground truth is read only after detection for validation.
+            var truth = SingleStepGroundTruth.FromSceneDefinition(sceneDefinition);
+            Debug.Log("[WalkEdgeLight P0-C Auto] detection=" +
+                (bestDelta < 0 ? "STEP_DOWN" : "STEP_UP") +
+                ", edgeZ=" + edgeMetres.ToString("F4") + " m" +
+                ", edgeTruth=" + truth.EdgeZMetres.ToString("F4") + " m" +
+                ", edgeError=" + ((edgeMetres - truth.EdgeZMetres) * 1000.0).ToString("F3") + " mm" +
+                ", heightDelta=" + (bestDelta * 1000.0).ToString("F3") + " mm");
+        }
+
         [ContextMenu("Run P0-C")]
         public void Run()
         {
