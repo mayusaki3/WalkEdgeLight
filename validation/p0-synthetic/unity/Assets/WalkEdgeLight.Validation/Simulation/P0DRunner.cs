@@ -26,11 +26,18 @@ namespace WalkEdgeLight.Validation.UnitySimulation
             RunInternal(true);
         }
 
-        private void RunInternal(bool slanted)
+        [ContextMenu("Run P0-E Offset")]
+        public void RunOffset()
+        {
+            RunInternal(false, 0.013f);
+        }
+
+        private void RunInternal(bool slanted, float edgeOffset = 0f)
         {
             if (sceneDefinition == null || sensorCamera == null)
                 throw new InvalidOperationException("P0-D references missing.");
             if (slanted) sceneDefinition.BuildSlanted(0.2f);
+            else if (edgeOffset != 0f) sceneDefinition.BuildAtEdge(sceneDefinition.EdgeZMetres + edgeOffset);
             else sceneDefinition.Build();
             Physics.SyncTransforms();
             var depth = new CpuRaycastPerfectDepthGenerator().Generate(sensorCamera, 160, 120, 10f);
@@ -93,7 +100,7 @@ namespace WalkEdgeLight.Validation.UnitySimulation
             }
             if (xs.Count < 2)
             {
-                Debug.Log((slanted ? "[WalkEdgeLight P0-D Slanted]" : "[WalkEdgeLight P0-D]") + " detection=NONE, stripsDetected=" + xs.Count);
+                Debug.Log((slanted ? "[WalkEdgeLight P0-D Slanted]" : edgeOffset != 0f ? "[WalkEdgeLight P0-E Offset]" : "[WalkEdgeLight P0-D]") + " detection=NONE, stripsDetected=" + xs.Count);
                 return;
             }
             double mx = 0, mz = 0;
@@ -115,12 +122,13 @@ namespace WalkEdgeLight.Validation.UnitySimulation
             }
             rms = Math.Sqrt(rms / xs.Count);
             var truth = SingleStepGroundTruth.FromSceneDefinition(sceneDefinition);
+            var expectedEdge = truth.EdgeZMetres + edgeOffset;
             Debug.Log((slanted ? "[WalkEdgeLight P0-D Slanted]" : "[WalkEdgeLight P0-D]") + " detection=EDGE" +
                 ", stripsDetected=" + xs.Count + "/" + Strips +
                 ", slope=" + slope.ToString("F6") +
                 ", edgeZAtX0=" + intercept.ToString("F4") + " m" +
-                ", edgeTruth=" + truth.EdgeZMetres.ToString("F4") + " m" +
-                ", positionError=" + ((intercept - truth.EdgeZMetres) * 1000).ToString("F3") + " mm" +
+                ", edgeTruth=" + expectedEdge.ToString("F4") + " m" +
+                ", positionError=" + ((intercept - expectedEdge) * 1000).ToString("F3") + " mm" +
                 ", lineRms=" + (rms * 1000).ToString("F3") + " mm" +
                 (slanted ? ", slopeTruth=0.200000, slopeError=" + (slope - 0.2).ToString("F6") : ""));
             if (slanted) { sceneDefinition.Build(); Physics.SyncTransforms(); }
