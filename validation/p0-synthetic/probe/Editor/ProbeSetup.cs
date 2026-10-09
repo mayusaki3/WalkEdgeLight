@@ -154,6 +154,16 @@ namespace WalkEdgeLight.Validation.Editor
             runner.RunOffset();
         }
 
+        [MenuItem("WalkEdgeLight/Probe/Run P0-E Sweep")]
+        internal static void RunP0ESweep()
+        {
+            var root = GameObject.Find(RootName);
+            Require(root != null, "Run Setup P0-A first");
+            var runner = root.GetComponent<P0DRunner>();
+            Require(runner != null, "P0DRunner missing");
+            runner.RunSweep();
+        }
+
         private static void SetObject(
             UnityEngine.Object target,
             string propertyName,
