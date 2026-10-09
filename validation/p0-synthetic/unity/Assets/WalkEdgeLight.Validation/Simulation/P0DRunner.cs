@@ -32,7 +32,37 @@ namespace WalkEdgeLight.Validation.UnitySimulation
             RunInternal(false, 0.013f);
         }
 
-        private void RunInternal(bool slanted, float edgeOffset = 0f)
+        [ContextMenu("Run P0-E Sweep")]
+        public void RunSweep()
+        {
+            float[] offsets = { 0f, 0.005f, 0.010f, 0.013f, 0.020f, 0.025f };
+            int detected = 0;
+            double sumAbs = 0, maxAbs = 0;
+            foreach (float offset in offsets)
+            {
+                double error = RunInternal(false, offset, false);
+                if (double.IsNaN(error))
+                {
+                    Debug.Log("[WalkEdgeLight P0-E Sweep] edgeTruth=" +
+                        (sceneDefinition.EdgeZMetres + offset).ToString("F4") + " m, detection=NONE");
+                    continue;
+                }
+                ++detected;
+                double absolute = Math.Abs(error);
+                sumAbs += absolute;
+                maxAbs = Math.Max(maxAbs, absolute);
+                Debug.Log("[WalkEdgeLight P0-E Sweep] edgeTruth=" +
+                    (sceneDefinition.EdgeZMetres + offset).ToString("F4") +
+                    " m, positionError=" + error.ToString("F3") + " mm");
+            }
+            sceneDefinition.Build();
+            Physics.SyncTransforms();
+            Debug.Log("[WalkEdgeLight P0-E Sweep] summary=" + detected + "/" + offsets.Length +
+                ", meanAbsError=" + (detected > 0 ? (sumAbs / detected).ToString("F3") : "N/A") +
+                " mm, maxAbsError=" + (detected > 0 ? maxAbs.ToString("F3") : "N/A") + " mm");
+        }
+
+        private double RunInternal(bool slanted, float edgeOffset = 0f, bool verbose = true)
         {
             if (sceneDefinition == null || sensorCamera == null)
                 throw new InvalidOperationException("P0-D references missing.");
@@ -116,8 +146,8 @@ namespace WalkEdgeLight.Validation.UnitySimulation
             }
             if (xs.Count < 2)
             {
-                Debug.Log((slanted ? "[WalkEdgeLight P0-D Slanted]" : edgeOffset != 0f ? "[WalkEdgeLight P0-E Offset]" : "[WalkEdgeLight P0-D]") + " detection=NONE, stripsDetected=" + xs.Count);
-                return;
+                if (verbose) Debug.Log((slanted ? "[WalkEdgeLight P0-D Slanted]" : edgeOffset != 0f ? "[WalkEdgeLight P0-E Offset]" : "[WalkEdgeLight P0-D]") + " detection=NONE, stripsDetected=" + xs.Count);
+                return double.NaN;
             }
             double mx = 0, mz = 0;
             for (int i = 0; i < xs.Count; ++i) { mx += xs[i]; mz += zs[i]; }
@@ -139,7 +169,7 @@ namespace WalkEdgeLight.Validation.UnitySimulation
             rms = Math.Sqrt(rms / xs.Count);
             var truth = SingleStepGroundTruth.FromSceneDefinition(sceneDefinition);
             var expectedEdge = truth.EdgeZMetres + edgeOffset;
-            Debug.Log((slanted ? "[WalkEdgeLight P0-D Slanted]" : edgeOffset != 0f ? "[WalkEdgeLight P0-E Offset]" : "[WalkEdgeLight P0-D]") + " detection=EDGE" +
+            if (verbose) Debug.Log((slanted ? "[WalkEdgeLight P0-D Slanted]" : edgeOffset != 0f ? "[WalkEdgeLight P0-E Offset]" : "[WalkEdgeLight P0-D]") + " detection=EDGE" +
                 ", stripsDetected=" + xs.Count + "/" + Strips +
                 ", slope=" + slope.ToString("F6") +
                 ", edgeZAtX0=" + intercept.ToString("F4") + " m" +
@@ -148,6 +178,7 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                 ", lineRms=" + (rms * 1000).ToString("F3") + " mm" +
                 (slanted ? ", slopeTruth=0.200000, slopeError=" + (slope - 0.2).ToString("F6") : ""));
             if (slanted) { sceneDefinition.Build(); Physics.SyncTransforms(); }
+            return (intercept - expectedEdge) * 1000.0;
         }
     }
 }
