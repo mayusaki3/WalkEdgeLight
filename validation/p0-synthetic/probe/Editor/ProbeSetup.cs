@@ -194,6 +194,16 @@ namespace WalkEdgeLight.Validation.Editor
             runner.RunBoundDiagnostic();
         }
 
+        [MenuItem("WalkEdgeLight/Probe/Run P0-E Tolerance")]
+        internal static void RunP0ETolerance()
+        {
+            var root = GameObject.Find(RootName);
+            Require(root != null, "Run Setup P0-A first");
+            var runner = root.GetComponent<P0DRunner>();
+            Require(runner != null, "P0DRunner missing");
+            runner.RunTolerance();
+        }
+
         private static void SetObject(
             UnityEngine.Object target,
             string propertyName,
