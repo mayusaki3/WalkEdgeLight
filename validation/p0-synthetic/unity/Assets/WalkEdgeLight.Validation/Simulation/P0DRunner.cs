@@ -14,6 +14,14 @@ namespace WalkEdgeLight.Validation.UnitySimulation
         private double lastUpperBound = double.NaN;
         private double lastProjectedUpper = double.NaN;
         private double lastProjectedMidpointError = double.NaN;
+        // Validation-only numerical tolerance; not a depth sensor accuracy claim.
+        private const double BoundToleranceMetres = 0.000010;
+        private static bool ContainsWithTolerance(double lower, double upper, double value)
+        {
+            return value >= lower - BoundToleranceMetres &&
+                value <= upper + BoundToleranceMetres;
+        }
+
         private const int Strips = 8;
         private const int Bins = 80;
         private const float BinWidth = 0.025f;
@@ -198,6 +206,71 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                             " mm, midpointMAE=" + (bounded > 0 ? (sumAbs / bounded).ToString("F3") : "N/A") +
                             " mm, maxAbsError=" + (bounded > 0 ? maxAbs.ToString("F3") : "N/A") + " mm");
                     }
+            }
+            finally
+            {
+                sensorCamera.transform.position = originalPosition;
+                sensorCamera.transform.rotation = originalRotation;
+                sceneDefinition.Build();
+                Physics.SyncTransforms();
+            }
+        }
+
+        [ContextMenu("Run P0-E Bounds Regression")]
+        public void RunBoundsRegression()
+        {
+            if (sceneDefinition == null || sensorCamera == null)
+                throw new InvalidOperationException("P0-E references missing.");
+            float[] heights = { 1.0f, 1.2f, 1.4f };
+            float[] pitches = { 35f, 45f, 55f };
+            float[] offsets = { 0f, 0.005f, 0.010f, 0.013f, 0.020f, 0.025f };
+            int detected = 0, bounded = 0, rawCovered = 0, toleranceCovered = 0;
+            int midpointValid = 0;
+            Vector3 originalPosition = sensorCamera.transform.position;
+            Quaternion originalRotation = sensorCamera.transform.rotation;
+            try
+            {
+                foreach (float height in heights)
+                    foreach (float pitch in pitches)
+                    {
+                        sensorCamera.transform.position = new Vector3(0f, height, 0f);
+                        sensorCamera.transform.rotation = Quaternion.Euler(pitch, 0f, 0f);
+                        foreach (float offset in offsets)
+                        {
+                            double error = RunInternal(false, offset, false, 320, 240);
+                            if (!double.IsNaN(error)) ++detected;
+                            bool valid = !double.IsNaN(lastLowerBound) &&
+                                !double.IsNaN(lastProjectedUpper) &&
+                                lastProjectedUpper >= lastLowerBound;
+                            if (!valid) continue;
+                            ++bounded;
+                            double truthZ = sceneDefinition.EdgeZMetres + offset;
+                            double rawMidpoint = (lastLowerBound + lastProjectedUpper) * 0.5;
+                            double tolerantLower = lastLowerBound - BoundToleranceMetres;
+                            double tolerantUpper = lastProjectedUpper + BoundToleranceMetres;
+                            double tolerantMidpoint = (tolerantLower + tolerantUpper) * 0.5;
+                            bool rawContains = lastLowerBound <= truthZ && truthZ <= lastProjectedUpper;
+                            bool tolerantContains = ContainsWithTolerance(lastLowerBound, lastProjectedUpper, truthZ);
+                            if (rawContains) ++rawCovered;
+                            if (tolerantContains) ++toleranceCovered;
+                            if (Math.Abs(rawMidpoint - tolerantMidpoint) < 1e-12) ++midpointValid;
+                            if (!rawContains || !tolerantContains)
+                                Debug.Log("[WalkEdgeLight P0-E BoundsRegression] exception height=" +
+                                    height.ToString("F2") + ", pitch=" + pitch.ToString("F0") +
+                                    ", truth=" + truthZ.ToString("F9") +
+                                    ", rawLower=" + lastLowerBound.ToString("F9") +
+                                    ", rawUpper=" + lastProjectedUpper.ToString("F9") +
+                                    ", tolerantLower=" + tolerantLower.ToString("F9") +
+                                    ", tolerantUpper=" + tolerantUpper.ToString("F9") +
+                                    ", rawContains=" + rawContains +
+                                    ", tolerantContains=" + tolerantContains);
+                        }
+                    }
+                Debug.Log("[WalkEdgeLight P0-E BoundsRegression] summary detected=" + detected +
+                    "/54, bounded=" + bounded + "/54, rawCoverage=" + rawCovered +
+                    "/54, toleranceCoverage=" + toleranceCovered +
+                    "/54, midpointUnchanged=" + midpointValid +
+                    "/54, toleranceUm=" + (BoundToleranceMetres * 1e6).ToString("F1"));
             }
             finally
             {
