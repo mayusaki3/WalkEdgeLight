@@ -110,6 +110,16 @@ namespace WalkEdgeLight.Validation.Editor
             runner.Run();
         }
 
+        [MenuItem("WalkEdgeLight/Probe/Run P0-C Auto")]
+        internal static void RunP0CAuto()
+        {
+            GameObject root = GameObject.Find(RootName);
+            Require(root != null, "Run Setup P0-A first");
+            P0CRunner runner = root.GetComponent<P0CRunner>();
+            Require(runner != null, "P0CRunner is missing; rerun Setup P0-A");
+            runner.RunAuto();
+        }
+
         private static void SetObject(
             UnityEngine.Object target,
             string propertyName,
