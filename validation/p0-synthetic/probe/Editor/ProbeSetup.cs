@@ -184,6 +184,16 @@ namespace WalkEdgeLight.Validation.Editor
             runner.RunPose();
         }
 
+        [MenuItem("WalkEdgeLight/Probe/Run P0-E Bound Diagnostic")]
+        internal static void RunP0EBoundDiagnostic()
+        {
+            var root = GameObject.Find(RootName);
+            Require(root != null, "Run Setup P0-A first");
+            var runner = root.GetComponent<P0DRunner>();
+            Require(runner != null, "P0DRunner missing");
+            runner.RunBoundDiagnostic();
+        }
+
         private static void SetObject(
             UnityEngine.Object target,
             string propertyName,
