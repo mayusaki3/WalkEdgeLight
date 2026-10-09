@@ -12,6 +12,7 @@ namespace WalkEdgeLight.Validation.UnitySimulation
         [SerializeField] private Camera sensorCamera;
         private double lastLowerBound = double.NaN;
         private double lastPercentileLowerBound = double.NaN;
+        private readonly double[] lastQuantileLowers = new double[4];
         private double lastUpperBound = double.NaN;
         private double lastProjectedUpper = double.NaN;
         private double lastProjectedMidpointError = double.NaN;
@@ -297,6 +298,71 @@ namespace WalkEdgeLight.Validation.UnitySimulation
             Physics.SyncTransforms();
         }
 
+        [ContextMenu("Run P0-F Quantile Seed Sweep")]
+        public void RunQuantileSeedSweep()
+        {
+            if (sceneDefinition == null || sensorCamera == null)
+                throw new InvalidOperationException("P0-F references missing.");
+            double[] sigmaMm = { 0.0, 1.0, 2.0 };
+            double[] quantiles = { 90.0, 95.0, 98.0, 100.0 };
+            int[] seedBases = { 20261009, 20261019, 20261029, 20261039, 20261049 };
+            float[] offsets = { 0f, 0.005f, 0.010f, 0.013f, 0.020f, 0.025f };
+            try
+            {
+                for (int s = 0; s < sigmaMm.Length; ++s)
+                {
+                    int[] bounded = new int[quantiles.Length];
+                    int[] covered = new int[quantiles.Length];
+                    double[] widthSum = new double[quantiles.Length];
+                    double[] absErrorSum = new double[quantiles.Length];
+                    double[] maxAbsError = new double[quantiles.Length];
+                    int detected = 0;
+                    for (int seedIndex = 0; seedIndex < seedBases.Length; ++seedIndex)
+                    {
+                        for (int k = 0; k < offsets.Length; ++k)
+                        {
+                            double error = RunInternal(false, offsets[k], false, 320, 240,
+                                false, sigmaMm[s] * 0.001, seedBases[seedIndex] + k);
+                            if (!double.IsNaN(error)) ++detected;
+                            double truthZ = sceneDefinition.EdgeZMetres + offsets[k];
+                            for (int q = 0; q < quantiles.Length; ++q)
+                            {
+                                double lower = lastQuantileLowers[q];
+                                double upper = lastProjectedUpper;
+                                if (double.IsNaN(lower) || double.IsNaN(upper) || upper < lower)
+                                    continue;
+                                ++bounded[q];
+                                if (ContainsWithTolerance(lower, upper, truthZ)) ++covered[q];
+                                widthSum[q] += (upper - lower) * 1000.0;
+                                double absError = Math.Abs(((lower + upper) * 0.5 - truthZ) * 1000.0);
+                                absErrorSum[q] += absError;
+                                maxAbsError[q] = Math.Max(maxAbsError[q], absError);
+                            }
+                        }
+                    }
+                    int total = seedBases.Length * offsets.Length;
+                    for (int q = 0; q < quantiles.Length; ++q)
+                    {
+                        Debug.Log("[WalkEdgeLight P0-F QuantileSweep] sigma=" + sigmaMm[s].ToString("F1") +
+                            " mm, percentile=" + quantiles[q].ToString("F0") +
+                            ", detected=" + detected + "/" + total +
+                            ", bounded=" + bounded[q] + "/" + total +
+                            ", coverage=" + covered[q] + "/" + total +
+                            ", meanWidth=" + (bounded[q] > 0 ? (widthSum[q] / bounded[q]).ToString("F3") : "N/A") +
+                            " mm, midpointMAE=" + (bounded[q] > 0 ? (absErrorSum[q] / bounded[q]).ToString("F3") : "N/A") +
+                            " mm, midpointMaxAbsError=" + (bounded[q] > 0 ? maxAbsError[q].ToString("F3") : "N/A") +
+                            " mm, seedCount=" + seedBases.Length +
+                            ", seedBases=20261009/20261019/20261029/20261039/20261049");
+                    }
+                }
+            }
+            finally
+            {
+                sceneDefinition.Build();
+                Physics.SyncTransforms();
+            }
+        }
+
         [ContextMenu("Run P0-F Percentile Comparison")]
         public void RunPercentileComparison()
         {
@@ -573,6 +639,7 @@ namespace WalkEdgeLight.Validation.UnitySimulation
         {
             lastLowerBound = double.NaN;
             lastPercentileLowerBound = double.NaN;
+            for (int q = 0; q < lastQuantileLowers.Length; ++q) lastQuantileLowers[q] = double.NaN;
             lastUpperBound = double.NaN;
             lastProjectedUpper = double.NaN;
             lastProjectedMidpointError = double.NaN;
@@ -622,6 +689,8 @@ namespace WalkEdgeLight.Validation.UnitySimulation
             var zs = new List<double>();
             double commonLower = double.NegativeInfinity;
             double commonPercentileLower = double.NegativeInfinity;
+            double[] commonQuantileLowers = { double.NegativeInfinity, double.NegativeInfinity, double.NegativeInfinity, double.NegativeInfinity };
+            double[] quantileFractions = { 0.90, 0.95, 0.98, 1.00 };
             double commonUpper = double.PositiveInfinity;
             double commonProjectedUpper = double.PositiveInfinity;
             int projectedStrips = 0;
@@ -700,6 +769,8 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                 {
                     commonLower = Math.Max(commonLower, nearMax);
                     commonPercentileLower = Math.Max(commonPercentileLower, Quantile(nearZValues, 0.95));
+                    for (int q = 0; q < quantileFractions.Length; ++q)
+                        commonQuantileLowers[q] = Math.Max(commonQuantileLowers[q], Quantile(nearZValues, quantileFractions[q]));
                     commonUpper = Math.Min(commonUpper, farMin);
                     ++boundedStrips;
                     if (!double.IsPositiveInfinity(projectedUpper))
@@ -720,6 +791,8 @@ namespace WalkEdgeLight.Validation.UnitySimulation
             {
                 lastLowerBound = commonLower;
                 lastPercentileLowerBound = commonPercentileLower;
+                for (int q = 0; q < lastQuantileLowers.Length; ++q)
+                    lastQuantileLowers[q] = commonQuantileLowers[q];
                 lastUpperBound = commonUpper;
                 if (projectedStrips == xs.Count && commonProjectedUpper >= commonLower)
                     lastProjectedUpper = Math.Min(commonUpper, commonProjectedUpper);
