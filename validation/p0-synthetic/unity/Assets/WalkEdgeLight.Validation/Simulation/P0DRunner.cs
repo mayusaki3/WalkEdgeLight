@@ -236,11 +236,19 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                     if (!p.HasValue) continue;
                     var s = (int)Math.Floor((p.Value.X + 1f) / 0.25f);
                     var b = (int)Math.Floor(p.Value.Z / BinWidth);
-                    if (p.Value.Z >= 0 && p.Value.Z < 0.4f) groundPoints.Add(p.Value);
+                    // Use the visible near-side floor, not a fixed 0.4 m camera-relative window.
+                    // The edge position is not read from ground truth by the detector.
+                    if (p.Value.Z >= 0 && p.Value.Z < 0.9f &&
+                        p.Value.Y > -0.005f && p.Value.Y < 0.005f)
+                        groundPoints.Add(p.Value);
                     if (s >= 0 && s < Strips && b >= 0 && b < Bins)
                         cells[s, b].Add(p.Value);
                 }
-            if (groundPoints.Count < 3) throw new InvalidOperationException("Insufficient ground points.");
+            if (groundPoints.Count < 3)
+            {
+                if (verbose) Debug.Log("[WalkEdgeLight P0-E] detection=NONE, reason=INSUFFICIENT_GROUND_POINTS, groundPoints=" + groundPoints.Count);
+                return double.NaN;
+            }
             var plane = GroundPlaneEstimator.FitLeastSquares(groundPoints);
             var xs = new List<double>();
             var zs = new List<double>();
