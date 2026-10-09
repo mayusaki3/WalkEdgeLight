@@ -101,7 +101,52 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                 " mm, projectedMidpointMaxAbsError=" + (projectedEstimates > 0 ? projectedMaxAbs.ToString("F3") : "N/A") + " mm");
         }
 
-        private double RunInternal(bool slanted, float edgeOffset = 0f, bool verbose = true)
+        [ContextMenu("Run P0-E Resolution")]
+        public void RunResolution()
+        {
+            float[] offsets = { 0f, 0.005f, 0.010f, 0.013f, 0.020f, 0.025f };
+            int[] widths = { 160, 320 };
+            foreach (int width in widths)
+            {
+                int detected = 0, bounded = 0, covered = 0;
+                double sumError = 0, maxError = 0, sumWidth = 0;
+                foreach (float offset in offsets)
+                {
+                    double originalError = RunInternal(false, offset, false, width, width * 3 / 4);
+                    double truthZ = sceneDefinition.EdgeZMetres + offset;
+                    bool hasBounds = !double.IsNaN(lastLowerBound) &&
+                        !double.IsNaN(lastProjectedUpper) && lastProjectedUpper >= lastLowerBound;
+                    bool contains = hasBounds && truthZ >= lastLowerBound && truthZ <= lastProjectedUpper;
+                    if (!double.IsNaN(originalError)) ++detected;
+                    if (hasBounds)
+                    {
+                        ++bounded;
+                        sumWidth += (lastProjectedUpper - lastLowerBound) * 1000.0;
+                        double error = Math.Abs(lastProjectedMidpointError);
+                        sumError += error;
+                        maxError = Math.Max(maxError, error);
+                    }
+                    if (contains) ++covered;
+                    Debug.Log("[WalkEdgeLight P0-E Resolution] size=" + width + "x" + (width * 3 / 4) +
+                        ", edgeTruth=" + truthZ.ToString("F4") + " m" +
+                        ", detected=" + !double.IsNaN(originalError) +
+                        ", projectedWidth=" + (hasBounds ? ((lastProjectedUpper - lastLowerBound) * 1000).ToString("F3") : "N/A") + " mm" +
+                        ", projectedMidpointError=" + (hasBounds ? lastProjectedMidpointError.ToString("F3") : "N/A") + " mm" +
+                        ", containsTruth=" + contains);
+                }
+                Debug.Log("[WalkEdgeLight P0-E Resolution] summary size=" + width + "x" + (width * 3 / 4) +
+                    ", detected=" + detected + "/" + offsets.Length +
+                    ", bounded=" + bounded + "/" + offsets.Length +
+                    ", coverage=" + covered + "/" + offsets.Length +
+                    ", meanProjectedWidth=" + (bounded > 0 ? (sumWidth / bounded).ToString("F3") : "N/A") + " mm" +
+                    ", projectedMidpointMAE=" + (bounded > 0 ? (sumError / bounded).ToString("F3") : "N/A") + " mm" +
+                    ", projectedMidpointMaxAbsError=" + (bounded > 0 ? maxError.ToString("F3") : "N/A") + " mm");
+            }
+            sceneDefinition.Build();
+            Physics.SyncTransforms();
+        }
+
+        private double RunInternal(bool slanted, float edgeOffset = 0f, bool verbose = true, int imageWidth = 160, int imageHeight = 120)
         {
             lastLowerBound = double.NaN;
             lastUpperBound = double.NaN;
@@ -113,7 +158,7 @@ namespace WalkEdgeLight.Validation.UnitySimulation
             else if (edgeOffset != 0f) sceneDefinition.BuildAtEdge(sceneDefinition.EdgeZMetres + edgeOffset);
             else sceneDefinition.Build();
             Physics.SyncTransforms();
-            var depth = new CpuRaycastPerfectDepthGenerator().Generate(sensorCamera, 160, 120, 10f);
+            var depth = new CpuRaycastPerfectDepthGenerator().Generate(sensorCamera, imageWidth, imageHeight, 10f);
             var frame = P0ASensorFrameAdapter.Create(
                 0, Time.realtimeSinceStartupAsDouble, sensorCamera, depth);
             var cells = new List<NumericsVector3>[Strips, Bins];
@@ -122,8 +167,8 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                     cells[s, b] = new List<NumericsVector3>();
 
             var groundPoints = new List<NumericsVector3>();
-            for (int v = 0; v < 120; ++v)
-                for (int u = 0; u < 160; ++u)
+            for (int v = 0; v < imageHeight; ++v)
+                for (int u = 0; u < imageWidth; ++u)
                 {
                     var p = PointReconstructor.ReconstructWorldPoint(frame, u, v);
                     if (!p.HasValue) continue;
