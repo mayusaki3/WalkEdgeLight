@@ -286,6 +286,61 @@ namespace WalkEdgeLight.Validation.UnitySimulation
             Physics.SyncTransforms();
         }
 
+        [ContextMenu("Run P0-F Noise Bounds Diagnostic")]
+        public void RunNoiseBoundsDiagnostic()
+        {
+            if (sceneDefinition == null || sensorCamera == null)
+                throw new InvalidOperationException("P0-F references missing.");
+            double[] sigmaMm = { 1.0, 2.0 };
+            float[] offsets = { 0f, 0.005f, 0.010f, 0.013f, 0.020f, 0.025f };
+            for (int level = 0; level < sigmaMm.Length; ++level)
+            {
+                int detected = 0, bounded = 0, covered = 0;
+                int lowerMissCount = 0, upperMissCount = 0;
+                double maximumLowerMissMm = 0, maximumUpperMissMm = 0;
+                for (int k = 0; k < offsets.Length; ++k)
+                {
+                    double error = RunInternal(false, offsets[k], false, 320, 240,
+                        false, sigmaMm[level] * 0.001, 20261009 + k);
+                    if (!double.IsNaN(error)) ++detected;
+                    bool hasBounds = !double.IsNaN(lastLowerBound) &&
+                        !double.IsNaN(lastProjectedUpper) &&
+                        lastProjectedUpper >= lastLowerBound;
+                    if (!hasBounds)
+                    {
+                        Debug.Log("[WalkEdgeLight P0-F NoiseBounds] sigma=" +
+                            sigmaMm[level].ToString("F1") + " mm, edgeOffset=" +
+                            offsets[k].ToString("F3") + " m, bounded=False");
+                        continue;
+                    }
+                    ++bounded;
+                    double truthZ = sceneDefinition.EdgeZMetres + offsets[k];
+                    double lowerMissMm = Math.Max(0, (lastLowerBound - truthZ - BoundToleranceMetres) * 1000);
+                    double upperMissMm = Math.Max(0, (truthZ - lastProjectedUpper - BoundToleranceMetres) * 1000);
+                    bool contains = lowerMissMm <= 0 && upperMissMm <= 0;
+                    if (contains) ++covered;
+                    if (lowerMissMm > 0) { ++lowerMissCount; maximumLowerMissMm = Math.Max(maximumLowerMissMm, lowerMissMm); }
+                    if (upperMissMm > 0) { ++upperMissCount; maximumUpperMissMm = Math.Max(maximumUpperMissMm, upperMissMm); }
+                    Debug.Log("[WalkEdgeLight P0-F NoiseBounds] sigma=" +
+                        sigmaMm[level].ToString("F1") + " mm, edgeTruth=" +
+                        truthZ.ToString("F9") + " m, rawLower=" +
+                        lastLowerBound.ToString("F9") + " m, rawUpper=" +
+                        lastProjectedUpper.ToString("F9") + " m, lowerMiss=" +
+                        lowerMissMm.ToString("F6") + " mm, upperMiss=" +
+                        upperMissMm.ToString("F6") + " mm, contains=" + contains);
+                }
+                Debug.Log("[WalkEdgeLight P0-F NoiseBounds] summary sigma=" +
+                    sigmaMm[level].ToString("F1") + " mm, detected=" + detected +
+                    "/6, bounded=" + bounded + "/6, coverage=" + covered +
+                    "/6, lowerMisses=" + lowerMissCount + ", upperMisses=" + upperMissCount +
+                    ", maxLowerMiss=" + maximumLowerMissMm.ToString("F6") +
+                    " mm, maxUpperMiss=" + maximumUpperMissMm.ToString("F6") +
+                    " mm, toleranceUm=" + (BoundToleranceMetres * 1e6).ToString("F1"));
+            }
+            sceneDefinition.Build();
+            Physics.SyncTransforms();
+        }
+
         [ContextMenu("Run P0-E Bounds Regression")]
         public void RunBoundsRegression()
         {
