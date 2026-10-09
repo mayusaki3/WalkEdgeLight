@@ -15,16 +15,21 @@ public sealed class SingleStepScene : MonoBehaviour
 
     public void Build()
     {
+        BuildAtEdge(edgeZMetres);
+    }
+
+    public void BuildAtEdge(float edgeZ)
+    {
         ClearChildren();
 
         // Camera approaches along +Z. The near surface is the reference floor.
         CreateBox("NearFloor",
-            new Vector3(0f, -0.05f, edgeZMetres * 0.5f),
-            new Vector3(widthMetres, 0.1f, edgeZMetres));
+            new Vector3(0f, -0.05f, edgeZ * 0.5f),
+            new Vector3(widthMetres, 0.1f, edgeZ));
 
         // P0-A default: a 20 mm downward step after the edge.
         CreateBox("FarFloor",
-            new Vector3(0f, -stepHeightMetres - 0.05f, edgeZMetres + farDepthMetres * 0.5f),
+            new Vector3(0f, -stepHeightMetres - 0.05f, edgeZ + farDepthMetres * 0.5f),
             new Vector3(widthMetres, 0.1f, farDepthMetres));
 
         // Fill the area behind the camera so the generated geometry is easy to inspect.
