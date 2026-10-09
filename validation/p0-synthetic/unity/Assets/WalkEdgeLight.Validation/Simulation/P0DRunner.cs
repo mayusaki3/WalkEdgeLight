@@ -208,6 +208,67 @@ namespace WalkEdgeLight.Validation.UnitySimulation
             }
         }
 
+        [ContextMenu("Run P0-E Tolerance")]
+        public void RunTolerance()
+        {
+            if (sceneDefinition == null || sensorCamera == null)
+                throw new InvalidOperationException("P0-E references missing.");
+            float[] heights = { 1.0f, 1.2f, 1.4f };
+            float[] pitches = { 35f, 45f, 55f };
+            float[] offsets = { 0f, 0.005f, 0.010f, 0.013f, 0.020f, 0.025f };
+            double[] toleranceMicrometres = { 0.0, 1.0, 5.0, 10.0 };
+            int[] coverage = new int[toleranceMicrometres.Length];
+            int detected = 0, bounded = 0;
+            double maximumRequiredMicrometres = 0;
+            Vector3 originalPosition = sensorCamera.transform.position;
+            Quaternion originalRotation = sensorCamera.transform.rotation;
+            try
+            {
+                foreach (float height in heights)
+                    foreach (float pitch in pitches)
+                    {
+                        sensorCamera.transform.position = new Vector3(0f, height, 0f);
+                        sensorCamera.transform.rotation = Quaternion.Euler(pitch, 0f, 0f);
+                        foreach (float offset in offsets)
+                        {
+                            double originalError = RunInternal(false, offset, false, 320, 240);
+                            if (!double.IsNaN(originalError)) ++detected;
+                            bool hasBounds = !double.IsNaN(lastLowerBound) &&
+                                !double.IsNaN(lastProjectedUpper) && lastProjectedUpper >= lastLowerBound;
+                            if (!hasBounds) continue;
+                            ++bounded;
+                            double truthZ = sceneDefinition.EdgeZMetres + offset;
+                            double lowerMissMicrometres = Math.Max(0, (lastLowerBound - truthZ) * 1e6);
+                            double upperMissMicrometres = Math.Max(0, (truthZ - lastProjectedUpper) * 1e6);
+                            double required = Math.Max(lowerMissMicrometres, upperMissMicrometres);
+                            maximumRequiredMicrometres = Math.Max(maximumRequiredMicrometres, required);
+                            for (int i = 0; i < toleranceMicrometres.Length; ++i)
+                                if (required <= toleranceMicrometres[i]) ++coverage[i];
+                            if (required > 0)
+                                Debug.Log("[WalkEdgeLight P0-E Tolerance] miss height=" + height.ToString("F2") +
+                                    " m, pitch=" + pitch.ToString("F0") + " deg, edgeTruth=" + truthZ.ToString("F9") +
+                                    " m, lower=" + lastLowerBound.ToString("F9") +
+                                    " m, upper=" + lastProjectedUpper.ToString("F9") +
+                                    " m, lowerMiss=" + lowerMissMicrometres.ToString("F3") +
+                                    " um, upperMiss=" + upperMissMicrometres.ToString("F3") +
+                                    " um, required=" + required.ToString("F3") + " um");
+                        }
+                    }
+                for (int i = 0; i < toleranceMicrometres.Length; ++i)
+                    Debug.Log("[WalkEdgeLight P0-E Tolerance] summary tolerance=" +
+                        toleranceMicrometres[i].ToString("F1") + " um, detected=" + detected +
+                        "/54, bounded=" + bounded + "/54, coverage=" + coverage[i] +
+                        "/54, maximumRequired=" + maximumRequiredMicrometres.ToString("F3") + " um");
+            }
+            finally
+            {
+                sensorCamera.transform.position = originalPosition;
+                sensorCamera.transform.rotation = originalRotation;
+                sceneDefinition.Build();
+                Physics.SyncTransforms();
+            }
+        }
+
         [ContextMenu("Run P0-E Bound Diagnostic")]
         public void RunBoundDiagnostic()
         {
