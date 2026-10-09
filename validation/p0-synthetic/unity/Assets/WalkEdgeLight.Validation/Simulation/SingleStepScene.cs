@@ -33,6 +33,33 @@ public sealed class SingleStepScene : MonoBehaviour
             new Vector3(widthMetres, 0.1f, nearDepthMetres));
     }
 
+    public void BuildSlanted(float slope)
+    {
+        ClearChildren();
+        // A common yawed frame gives both floor boxes exactly the same edge.
+        // Its local X axis follows z = EdgeZMetres + slope * x.
+        var frame = new GameObject("SlantedFloorFrame");
+        frame.transform.SetParent(transform, false);
+        frame.transform.localPosition = new Vector3(0f, 0f, edgeZMetres);
+        frame.transform.localRotation = Quaternion.Euler(0f, -Mathf.Atan(slope) * Mathf.Rad2Deg, 0f);
+
+        CreateSlantedBox(frame.transform, "NearFloor",
+            new Vector3(0f, -0.05f, -1f),
+            new Vector3(widthMetres, 0.1f, 2f));
+        CreateSlantedBox(frame.transform, "FarFloor",
+            new Vector3(0f, -stepHeightMetres - 0.05f, farDepthMetres * 0.5f),
+            new Vector3(widthMetres, 0.1f, farDepthMetres));
+    }
+
+    private static void CreateSlantedBox(Transform parent, string name, Vector3 position, Vector3 scale)
+    {
+        var go = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        go.name = name;
+        go.transform.SetParent(parent, false);
+        go.transform.localPosition = position;
+        go.transform.localScale = scale;
+    }
+
     private void CreateBox(string objectName, Vector3 position, Vector3 scale)
     {
         var go = GameObject.CreatePrimitive(PrimitiveType.Cube);
