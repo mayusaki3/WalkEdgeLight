@@ -11,6 +11,7 @@ namespace WalkEdgeLight.Validation.UnitySimulation
         [SerializeField] private SingleStepScene sceneDefinition;
         [SerializeField] private Camera sensorCamera;
         private double lastLowerBound = double.NaN;
+        private double lastRawLowerBound = double.NaN;
         private double lastPercentileLowerBound = double.NaN;
         private readonly double[] lastQuantileLowers = new double[4];
         private double lastUpperBound = double.NaN;
@@ -298,6 +299,72 @@ namespace WalkEdgeLight.Validation.UnitySimulation
             Physics.SyncTransforms();
         }
 
+        [ContextMenu("Run P0-F Default Regression")]
+        public void RunDefaultRegression()
+        {
+            if (sceneDefinition == null || sensorCamera == null)
+                throw new InvalidOperationException("P0-F references missing.");
+            float[] heights = { 1.0f, 1.2f, 1.4f };
+            float[] pitches = { 35f, 45f, 55f };
+            float[] offsets = { 0f, 0.005f, 0.010f, 0.013f, 0.020f, 0.025f };
+            double[] sigmas = { 0.0, 1.0, 2.0 };
+            int[] seeds = { 20261009, 20261019, 20261029, 20261039, 20261049 };
+            Vector3 oldPosition = sensorCamera.transform.position;
+            Quaternion oldRotation = sensorCamera.transform.rotation;
+            try
+            {
+                int detected = 0, bounded = 0, covered = 0;
+                for (int h = 0; h < heights.Length; ++h)
+                    for (int p = 0; p < pitches.Length; ++p)
+                    {
+                        sensorCamera.transform.position = new Vector3(0f, heights[h], 0f);
+                        sensorCamera.transform.rotation = Quaternion.Euler(pitches[p], 0f, 0f);
+                        for (int k = 0; k < offsets.Length; ++k)
+                        {
+                            double result = RunInternal(false, offsets[k], false, 320, 240);
+                            if (!double.IsNaN(result)) ++detected;
+                            bool valid = !double.IsNaN(lastLowerBound) &&
+                                !double.IsNaN(lastProjectedUpper) && lastProjectedUpper >= lastLowerBound;
+                            if (valid) ++bounded;
+                            if (valid && ContainsWithTolerance(lastLowerBound, lastProjectedUpper,
+                                sceneDefinition.EdgeZMetres + offsets[k])) ++covered;
+                        }
+                    }
+                Debug.Log("[WalkEdgeLight P0-F DefaultRegression] poseSummary detected=" +
+                    detected + "/54, bounded=" + bounded + "/54, coverage=" + covered +
+                    "/54, percentile=95, toleranceUm=10");
+                sensorCamera.transform.position = new Vector3(0f, 1.2f, 0f);
+                sensorCamera.transform.rotation = Quaternion.Euler(45f, 0f, 0f);
+                foreach (double sigma in sigmas)
+                {
+                    detected = 0; bounded = 0; covered = 0;
+                    foreach (int seed in seeds)
+                        for (int k = 0; k < offsets.Length; ++k)
+                        {
+                            double result = RunInternal(false, offsets[k], false, 320, 240,
+                                false, sigma * 0.001, seed + k);
+                            if (!double.IsNaN(result)) ++detected;
+                            bool valid = !double.IsNaN(lastLowerBound) &&
+                                !double.IsNaN(lastProjectedUpper) && lastProjectedUpper >= lastLowerBound;
+                            if (valid) ++bounded;
+                            if (valid && ContainsWithTolerance(lastLowerBound, lastProjectedUpper,
+                                sceneDefinition.EdgeZMetres + offsets[k])) ++covered;
+                        }
+                    Debug.Log("[WalkEdgeLight P0-F DefaultRegression] noiseSummary sigma=" +
+                        sigma.ToString("F1") + " mm, detected=" + detected +
+                        "/30, bounded=" + bounded + "/30, coverage=" + covered +
+                        "/30, percentile=95");
+                }
+            }
+            finally
+            {
+                sensorCamera.transform.position = oldPosition;
+                sensorCamera.transform.rotation = oldRotation;
+                sceneDefinition.Build();
+                Physics.SyncTransforms();
+            }
+        }
+
         [ContextMenu("Run P0-F Quantile Seed Sweep")]
         public void RunQuantileSeedSweep()
         {
@@ -384,18 +451,18 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                             false, sigma * 0.001, 20261009 + Array.IndexOf(offsets, offset));
                         if (!double.IsNaN(result)) ++detected;
                         double truthZ = sceneDefinition.EdgeZMetres + offset;
-                        bool rawValid = !double.IsNaN(lastLowerBound) &&
+                        bool rawValid = !double.IsNaN(lastRawLowerBound) &&
                             !double.IsNaN(lastProjectedUpper) &&
-                            lastProjectedUpper >= lastLowerBound;
+                            lastProjectedUpper >= lastRawLowerBound;
                         bool percentileValid = !double.IsNaN(lastPercentileLowerBound) &&
                             !double.IsNaN(lastProjectedUpper) &&
                             lastProjectedUpper >= lastPercentileLowerBound;
                         if (rawValid)
                         {
                             ++rawBounded;
-                            rawWidthSum += (lastProjectedUpper - lastLowerBound) * 1000;
-                            rawErrorSum += Math.Abs(((lastLowerBound + lastProjectedUpper) * 0.5 - truthZ) * 1000);
-                            if (ContainsWithTolerance(lastLowerBound, lastProjectedUpper, truthZ)) ++rawCovered;
+                            rawWidthSum += (lastProjectedUpper - lastRawLowerBound) * 1000;
+                            rawErrorSum += Math.Abs(((lastRawLowerBound + lastProjectedUpper) * 0.5 - truthZ) * 1000);
+                            if (ContainsWithTolerance(lastRawLowerBound, lastProjectedUpper, truthZ)) ++rawCovered;
                         }
                         if (percentileValid)
                         {
@@ -406,7 +473,7 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                         }
                         Debug.Log("[WalkEdgeLight P0-F Percentile] sigma=" + sigma.ToString("F1") +
                             " mm, truth=" + truthZ.ToString("F4") +
-                            " m, rawLower=" + lastLowerBound.ToString("F9") +
+                            " m, rawLower=" + lastRawLowerBound.ToString("F9") +
                             ", percentile95Lower=" + lastPercentileLowerBound.ToString("F9") +
                             ", projectedUpper=" + lastProjectedUpper.ToString("F9") +
                             ", rawValid=" + rawValid + ", percentileValid=" + percentileValid);
@@ -449,9 +516,9 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                     double error = RunInternal(false, offsets[k], false, 320, 240,
                         false, sigmaMm[level] * 0.001, 20261009 + k);
                     if (!double.IsNaN(error)) ++detected;
-                    bool hasBounds = !double.IsNaN(lastLowerBound) &&
+                    bool hasBounds = !double.IsNaN(lastRawLowerBound) &&
                         !double.IsNaN(lastProjectedUpper) &&
-                        lastProjectedUpper >= lastLowerBound;
+                        lastProjectedUpper >= lastRawLowerBound;
                     if (!hasBounds)
                     {
                         Debug.Log("[WalkEdgeLight P0-F NoiseBounds] sigma=" +
@@ -461,7 +528,7 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                     }
                     ++bounded;
                     double truthZ = sceneDefinition.EdgeZMetres + offsets[k];
-                    double lowerMissMm = Math.Max(0, (lastLowerBound - truthZ - BoundToleranceMetres) * 1000);
+                    double lowerMissMm = Math.Max(0, (lastRawLowerBound - truthZ - BoundToleranceMetres) * 1000);
                     double upperMissMm = Math.Max(0, (truthZ - lastProjectedUpper - BoundToleranceMetres) * 1000);
                     bool contains = lowerMissMm <= 0 && upperMissMm <= 0;
                     if (contains) ++covered;
@@ -470,7 +537,7 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                     Debug.Log("[WalkEdgeLight P0-F NoiseBounds] sigma=" +
                         sigmaMm[level].ToString("F1") + " mm, edgeTruth=" +
                         truthZ.ToString("F9") + " m, rawLower=" +
-                        lastLowerBound.ToString("F9") + " m, rawUpper=" +
+                        lastRawLowerBound.ToString("F9") + " m, rawUpper=" +
                         lastProjectedUpper.ToString("F9") + " m, lowerMiss=" +
                         lowerMissMm.ToString("F6") + " mm, upperMiss=" +
                         upperMissMm.ToString("F6") + " mm, contains=" + contains);
@@ -638,6 +705,7 @@ namespace WalkEdgeLight.Validation.UnitySimulation
         private double RunInternal(bool slanted, float edgeOffset = 0f, bool verbose = true, int imageWidth = 160, int imageHeight = 120, bool diagnoseBounds = false, double gaussianSigmaMetres = 0, int gaussianSeed = 20261009)
         {
             lastLowerBound = double.NaN;
+            lastRawLowerBound = double.NaN;
             lastPercentileLowerBound = double.NaN;
             for (int q = 0; q < lastQuantileLowers.Length; ++q) lastQuantileLowers[q] = double.NaN;
             lastUpperBound = double.NaN;
@@ -787,14 +855,15 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                 if (verbose) Debug.Log((slanted ? "[WalkEdgeLight P0-D Slanted]" : edgeOffset != 0f ? "[WalkEdgeLight P0-E Offset]" : "[WalkEdgeLight P0-D]") + " detection=NONE, stripsDetected=" + xs.Count);
                 return double.NaN;
             }
-            if (!slanted && boundedStrips == xs.Count && commonLower <= commonUpper)
+            if (!slanted && boundedStrips == xs.Count && commonPercentileLower <= commonUpper)
             {
-                lastLowerBound = commonLower;
+                lastRawLowerBound = commonLower;
+                lastLowerBound = commonPercentileLower;
                 lastPercentileLowerBound = commonPercentileLower;
                 for (int q = 0; q < lastQuantileLowers.Length; ++q)
                     lastQuantileLowers[q] = commonQuantileLowers[q];
                 lastUpperBound = commonUpper;
-                if (projectedStrips == xs.Count && commonProjectedUpper >= commonLower)
+                if (projectedStrips == xs.Count && commonProjectedUpper >= commonPercentileLower)
                     lastProjectedUpper = Math.Min(commonUpper, commonProjectedUpper);
             }
             if (diagnoseBounds)
