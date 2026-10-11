@@ -254,6 +254,72 @@ namespace WalkEdgeLight.Validation.UnitySimulation
             return new GeneratedDepth(source.Width, source.Height, values, valid);
         }
 
+        // P0-F-6: deterministic missing depth pixels, applied before reconstruction.
+        private static GeneratedDepth DropDepthPixels(GeneratedDepth source, double dropoutFraction, int seed)
+        {
+            var values = (float[])source.DepthMetres.Clone();
+            var valid = (bool[])source.Valid.Clone();
+            var random = new System.Random(seed);
+            for (int i = 0; i < valid.Length; ++i)
+            {
+                if (valid[i] && random.NextDouble() < dropoutFraction)
+                {
+                    valid[i] = false;
+                    values[i] = 0f;
+                }
+            }
+            return new GeneratedDepth(source.Width, source.Height, values, valid);
+        }
+
+        [ContextMenu("Run P0-F Dropout")]
+        public void RunDropout()
+        {
+            if (sceneDefinition == null || sensorCamera == null)
+                throw new InvalidOperationException("P0-F references missing.");
+            double[] dropoutRates = { 0.0, 0.05, 0.10, 0.20 };
+            float[] offsets = { 0f, 0.005f, 0.010f, 0.013f, 0.020f, 0.025f };
+            int[] seeds = { 20261009, 20261019, 20261029, 20261039, 20261049 };
+            try
+            {
+                foreach (double rate in dropoutRates)
+                {
+                    int detected = 0, bounded = 0, covered = 0;
+                    double sumAbs = 0, maxAbs = 0, sumWidth = 0;
+                    foreach (int seed in seeds)
+                        for (int k = 0; k < offsets.Length; ++k)
+                        {
+                            double error = RunInternal(false, offsets[k], false, 320, 240,
+                                false, 0, 20261009, rate, seed + k);
+                            if (!double.IsNaN(error)) ++detected;
+                            bool valid = !double.IsNaN(lastLowerBound) &&
+                                !double.IsNaN(lastProjectedUpper) && lastProjectedUpper >= lastLowerBound;
+                            if (!valid) continue;
+                            ++bounded;
+                            double truthZ = sceneDefinition.EdgeZMetres + offsets[k];
+                            if (ContainsWithTolerance(lastLowerBound, lastProjectedUpper, truthZ)) ++covered;
+                            double absError = Math.Abs(lastProjectedMidpointError);
+                            sumAbs += absError;
+                            maxAbs = Math.Max(maxAbs, absError);
+                            sumWidth += (lastProjectedUpper - lastLowerBound) * 1000.0;
+                        }
+                    Debug.Log("[WalkEdgeLight P0-F Dropout] rate=" + (rate * 100).ToString("F0") +
+                        "%, detected=" + detected + "/30, bounded=" + bounded +
+                        "/30, coverage=" + covered + "/30, meanWidth=" +
+                        (bounded > 0 ? (sumWidth / bounded).ToString("F3") : "N/A") +
+                        " mm, midpointMAE=" +
+                        (bounded > 0 ? (sumAbs / bounded).ToString("F3") : "N/A") +
+                        " mm, midpointMaxAbsError=" +
+                        (bounded > 0 ? maxAbs.ToString("F3") : "N/A") +
+                        " mm, seedCount=5, percentile=95");
+                }
+            }
+            finally
+            {
+                sceneDefinition.Build();
+                Physics.SyncTransforms();
+            }
+        }
+
         [ContextMenu("Run P0-F Gaussian")]
         public void RunGaussianNoise()
         {
@@ -702,7 +768,7 @@ namespace WalkEdgeLight.Validation.UnitySimulation
             }
         }
 
-        private double RunInternal(bool slanted, float edgeOffset = 0f, bool verbose = true, int imageWidth = 160, int imageHeight = 120, bool diagnoseBounds = false, double gaussianSigmaMetres = 0, int gaussianSeed = 20261009)
+        private double RunInternal(bool slanted, float edgeOffset = 0f, bool verbose = true, int imageWidth = 160, int imageHeight = 120, bool diagnoseBounds = false, double gaussianSigmaMetres = 0, int gaussianSeed = 20261009, double dropoutFraction = 0, int dropoutSeed = 20261009)
         {
             lastLowerBound = double.NaN;
             lastRawLowerBound = double.NaN;
@@ -720,6 +786,8 @@ namespace WalkEdgeLight.Validation.UnitySimulation
             var depth = new CpuRaycastPerfectDepthGenerator().Generate(sensorCamera, imageWidth, imageHeight, 10f);
             if (gaussianSigmaMetres > 0)
                 depth = AddGaussianDepthNoise(depth, gaussianSigmaMetres, gaussianSeed);
+            if (dropoutFraction > 0)
+                depth = DropDepthPixels(depth, dropoutFraction, dropoutSeed);
             var frame = P0ASensorFrameAdapter.Create(
                 0, Time.realtimeSinceStartupAsDouble, sensorCamera, depth);
             var cells = new List<NumericsVector3>[Strips, Bins];
