@@ -254,6 +254,16 @@ namespace WalkEdgeLight.Validation.Editor
             runner.RunQuantileSeedSweep();
         }
 
+        [MenuItem("WalkEdgeLight/Probe/Run P0-F Default Regression")]
+        internal static void RunP0FDefaultRegression()
+        {
+            var root = GameObject.Find(RootName);
+            Require(root != null, "Run Setup P0-A first");
+            var runner = root.GetComponent<P0DRunner>();
+            Require(runner != null, "P0DRunner missing");
+            runner.RunDefaultRegression();
+        }
+
         private static void SetObject(
             UnityEngine.Object target,
             string propertyName,
