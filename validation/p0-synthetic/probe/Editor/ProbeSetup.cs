@@ -264,6 +264,16 @@ namespace WalkEdgeLight.Validation.Editor
             runner.RunDefaultRegression();
         }
 
+        [MenuItem("WalkEdgeLight/Probe/Run P0-F Dropout")]
+        internal static void RunP0FDropout()
+        {
+            var root = GameObject.Find(RootName);
+            Require(root != null, "Run Setup P0-A first");
+            var runner = root.GetComponent<P0DRunner>();
+            Require(runner != null, "P0DRunner missing");
+            runner.RunDropout();
+        }
+
         private static void SetObject(
             UnityEngine.Object target,
             string propertyName,
