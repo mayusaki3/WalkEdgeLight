@@ -274,6 +274,16 @@ namespace WalkEdgeLight.Validation.Editor
             runner.RunDropout();
         }
 
+        [MenuItem("WalkEdgeLight/Probe/Run P0-F Far Quantile Accuracy")]
+        internal static void RunP0FFarQuantileAccuracy()
+        {
+            var root = GameObject.Find(RootName);
+            Require(root != null, "Run Setup P0-A first");
+            var runner = root.GetComponent<P0DRunner>();
+            Require(runner != null, "P0DRunner missing");
+            runner.RunFarQuantileAccuracy();
+        }
+
         [MenuItem("WalkEdgeLight/Probe/Run P0-F Far Quantile Diagnostic")]
         internal static void RunP0FFarQuantileDiagnostic()
         {
