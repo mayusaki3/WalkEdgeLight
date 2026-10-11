@@ -302,6 +302,51 @@ namespace WalkEdgeLight.Validation.UnitySimulation
             return new GeneratedDepth(source.Width, source.Height, values, valid);
         }
 
+        [ContextMenu("Run P0-F Outlier Diagnostic")]
+        public void RunOutlierDiagnostic()
+        {
+            if (sceneDefinition == null || sensorCamera == null)
+                throw new InvalidOperationException("P0-F references missing.");
+            double[] rates = { 0.001, 0.005, 0.01 };
+            float[] offsets = { 0f, 0.005f, 0.010f, 0.013f, 0.020f, 0.025f };
+            int[] seeds = { 20261009, 20261019, 20261029, 20261039, 20261049 };
+            try
+            {
+                foreach (double rate in rates)
+                {
+                    bool found = false;
+                    foreach (int seed in seeds)
+                    {
+                        for (int k = 0; k < offsets.Length; ++k)
+                        {
+                            RunInternal(false, offsets[k], false, 320, 240, false,
+                                0, 20261009, 0, 20261009, rate, seed + k, 0.05);
+                            if (!double.IsNaN(lastLowerBound) &&
+                                !double.IsNaN(lastProjectedUpper) &&
+                                lastProjectedUpper >= lastLowerBound)
+                                continue;
+                            Debug.Log("[WalkEdgeLight P0-F OutlierDiag] failingCase rate=" +
+                                (rate * 100).ToString("F1") + "%, offsetMm=" +
+                                (offsets[k] * 1000).ToString("F1") + ", seed=" + (seed + k));
+                            RunInternal(false, offsets[k], false, 320, 240, true,
+                                0, 20261009, 0, 20261009, rate, seed + k, 0.05);
+                            found = true;
+                            break;
+                        }
+                        if (found) break;
+                    }
+                    if (!found)
+                        Debug.Log("[WalkEdgeLight P0-F OutlierDiag] noFailure rate=" +
+                            (rate * 100).ToString("F1") + "%");
+                }
+            }
+            finally
+            {
+                sceneDefinition.Build();
+                Physics.SyncTransforms();
+            }
+        }
+
         [ContextMenu("Run P0-F Outliers")]
         public void RunOutliers()
         {
