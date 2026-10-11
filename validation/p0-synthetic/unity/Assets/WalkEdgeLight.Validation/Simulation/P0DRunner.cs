@@ -307,6 +307,69 @@ namespace WalkEdgeLight.Validation.UnitySimulation
 
         // Diagnostic only: compare raw far-side minimum against low quantiles.
         // Does not alter production boundary selection.
+        [ContextMenu("Run P0-F Far Quantile Accuracy")]
+        public void RunFarQuantileAccuracy()
+        {
+            if (sceneDefinition == null || sensorCamera == null)
+                throw new InvalidOperationException("P0-F references missing.");
+            double[] rates = { 0.0, 0.001, 0.005, 0.01 };
+            double[] fractions = { 0.02, 0.05, 0.10 };
+            float[] offsets = { 0f, 0.005f, 0.010f, 0.013f, 0.020f, 0.025f };
+            int[] seeds = { 20261009, 20261019, 20261029, 20261039, 20261049 };
+            try
+            {
+                foreach (double rate in rates)
+                {
+                    int[] bounded = new int[3];
+                    int[] coverage = new int[3];
+                    double[] sumWidth = new double[3];
+                    double[] sumAbsError = new double[3];
+                    double[] maxAbsError = new double[3];
+                    for (int si = 0; si < seeds.Length; ++si)
+                        for (int k = 0; k < offsets.Length; ++k)
+                        {
+                            RunInternal(false, offsets[k], false, 320, 240,
+                                false, 0, 20261009, 0, 20261009,
+                                rate, seeds[si] + k, 0.05, true);
+                            double truthZ = sceneDefinition.EdgeZMetres + offsets[k];
+                            for (int q = 0; q < fractions.Length; ++q)
+                            {
+                                int index = q + 1;
+                                double lower = lastFarQuantileLowers[index];
+                                double upper = lastFarQuantileUppers[index];
+                                if (lastFarQuantileValidStrips[index] != Strips ||
+                                    double.IsNaN(lower) || double.IsNaN(upper) ||
+                                    upper < lower)
+                                    continue;
+                                ++bounded[q];
+                                if (ContainsWithTolerance(lower, upper, truthZ))
+                                    ++coverage[q];
+                                double errorMm = Math.Abs((0.5 * (lower + upper) - truthZ) * 1000);
+                                sumWidth[q] += (upper - lower) * 1000;
+                                sumAbsError[q] += errorMm;
+                                maxAbsError[q] = Math.Max(maxAbsError[q], errorMm);
+                            }
+                        }
+                    for (int q = 0; q < fractions.Length; ++q)
+                        Debug.Log("[WalkEdgeLight P0-F FarAccuracy] rate=" +
+                            (rate * 100).ToString("F1") + "%, farQuantile=" +
+                            (fractions[q] * 100).ToString("F0") +
+                            "%, bounded=" + bounded[q] + "/30, coverage=" +
+                            coverage[q] + "/30, meanWidth=" +
+                            (bounded[q] == 0 ? "N/A" : (sumWidth[q] / bounded[q]).ToString("F3")) +
+                            " mm, midpointMAE=" +
+                            (bounded[q] == 0 ? "N/A" : (sumAbsError[q] / bounded[q]).ToString("F3")) +
+                            " mm, midpointMaxAbsError=" +
+                            (bounded[q] == 0 ? "N/A" : maxAbsError[q].ToString("F3")) + " mm");
+                }
+            }
+            finally
+            {
+                sceneDefinition.Build();
+                Physics.SyncTransforms();
+            }
+        }
+
         [ContextMenu("Run P0-F Far Quantile Diagnostic")]
         public void RunFarQuantileDiagnostic()
         {
