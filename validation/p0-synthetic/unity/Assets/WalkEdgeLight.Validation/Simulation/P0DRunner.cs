@@ -12,6 +12,11 @@ namespace WalkEdgeLight.Validation.UnitySimulation
         [SerializeField] private Camera sensorCamera;
         private double lastLowerBound = double.NaN;
         private double lastRawLowerBound = double.NaN;
+        private int lastValidBeforeDropout;
+        private int lastValidAfterDropout;
+        private int lastReconstructedPoints;
+        private int lastNearBoundaryPoints;
+        private int lastFarBoundaryPoints;
         private double lastPercentileLowerBound = double.NaN;
         private readonly double[] lastQuantileLowers = new double[4];
         private double lastUpperBound = double.NaN;
@@ -285,11 +290,18 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                 {
                     int detected = 0, bounded = 0, covered = 0;
                     double sumAbs = 0, maxAbs = 0, sumWidth = 0;
+                    long beforePixels = 0, afterPixels = 0, reconstructed = 0;
+                    long nearBoundary = 0, farBoundary = 0;
                     foreach (int seed in seeds)
                         for (int k = 0; k < offsets.Length; ++k)
                         {
                             double error = RunInternal(false, offsets[k], false, 320, 240,
                                 false, 0, 20261009, rate, seed + k);
+                            beforePixels += lastValidBeforeDropout;
+                            afterPixels += lastValidAfterDropout;
+                            reconstructed += lastReconstructedPoints;
+                            nearBoundary += lastNearBoundaryPoints;
+                            farBoundary += lastFarBoundaryPoints;
                             if (!double.IsNaN(error)) ++detected;
                             bool valid = !double.IsNaN(lastLowerBound) &&
                                 !double.IsNaN(lastProjectedUpper) && lastProjectedUpper >= lastLowerBound;
@@ -302,6 +314,14 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                             maxAbs = Math.Max(maxAbs, absError);
                             sumWidth += (lastProjectedUpper - lastLowerBound) * 1000.0;
                         }
+                    Debug.Log("[WalkEdgeLight P0-F DropoutAudit] requestedRate=" +
+                        (rate * 100).ToString("F0") + "%, validBefore=" + beforePixels +
+                        ", validAfter=" + afterPixels + ", dropped=" + (beforePixels - afterPixels) +
+                        ", actualDropRate=" +
+                        (beforePixels > 0 ? ((beforePixels - afterPixels) * 100.0 / beforePixels).ToString("F3") : "N/A") +
+                        "%, reconstructedPoints=" + reconstructed +
+                        ", nearBoundaryPoints=" + nearBoundary +
+                        ", farBoundaryPoints=" + farBoundary + ", cases=30");
                     Debug.Log("[WalkEdgeLight P0-F Dropout] rate=" + (rate * 100).ToString("F0") +
                         "%, detected=" + detected + "/30, bounded=" + bounded +
                         "/30, coverage=" + covered + "/30, meanWidth=" +
@@ -772,6 +792,11 @@ namespace WalkEdgeLight.Validation.UnitySimulation
         {
             lastLowerBound = double.NaN;
             lastRawLowerBound = double.NaN;
+            lastValidBeforeDropout = 0;
+            lastValidAfterDropout = 0;
+            lastReconstructedPoints = 0;
+            lastNearBoundaryPoints = 0;
+            lastFarBoundaryPoints = 0;
             lastPercentileLowerBound = double.NaN;
             for (int q = 0; q < lastQuantileLowers.Length; ++q) lastQuantileLowers[q] = double.NaN;
             lastUpperBound = double.NaN;
@@ -786,8 +811,12 @@ namespace WalkEdgeLight.Validation.UnitySimulation
             var depth = new CpuRaycastPerfectDepthGenerator().Generate(sensorCamera, imageWidth, imageHeight, 10f);
             if (gaussianSigmaMetres > 0)
                 depth = AddGaussianDepthNoise(depth, gaussianSigmaMetres, gaussianSeed);
+            foreach (bool validPixel in depth.Valid)
+                if (validPixel) ++lastValidBeforeDropout;
             if (dropoutFraction > 0)
                 depth = DropDepthPixels(depth, dropoutFraction, dropoutSeed);
+            foreach (bool validPixel in depth.Valid)
+                if (validPixel) ++lastValidAfterDropout;
             var frame = P0ASensorFrameAdapter.Create(
                 0, Time.realtimeSinceStartupAsDouble, sensorCamera, depth);
             var cells = new List<NumericsVector3>[Strips, Bins];
@@ -801,6 +830,7 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                 {
                     var p = PointReconstructor.ReconstructWorldPoint(frame, u, v);
                     if (!p.HasValue) continue;
+                    ++lastReconstructedPoints;
                     var s = (int)Math.Floor((p.Value.X + 1f) / 0.25f);
                     var b = (int)Math.Floor(p.Value.Z / BinWidth);
                     // Use the visible near-side floor, not a fixed 0.4 m camera-relative window.
@@ -877,10 +907,12 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                         {
                             nearMax = Math.Max(nearMax, p.Z);
                             nearZValues.Add(p.Z);
+                            ++lastNearBoundaryPoints;
                         }
                         else if (distance < -0.010 && p.Z >= coarseZ - 0.10)
                         {
                             farMin = Math.Min(farMin, p.Z);
+                            ++lastFarBoundaryPoints;
                             // Ray through a far-floor hit, intersected with reference Y=0.
                             double cameraY = sensorCamera.transform.position.y;
                             double cameraZ = sensorCamera.transform.position.z;
