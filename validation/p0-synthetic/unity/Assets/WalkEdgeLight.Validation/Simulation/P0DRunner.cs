@@ -307,6 +307,100 @@ namespace WalkEdgeLight.Validation.UnitySimulation
             return new GeneratedDepth(source.Width, source.Height, values, valid);
         }
 
+        // P0-F-13: contiguous rectangular depth errors, independent of edge truth.
+        private static GeneratedDepth InjectClusteredDepthOutliers(GeneratedDepth source,
+            int patchWidth, int patchHeight, int patchCount, double magnitudeMetres,
+            int seed, out int candidates, out int changed)
+        {
+            var values = (float[])source.DepthMetres.Clone();
+            var valid = (bool[])source.Valid.Clone();
+            var touched = new bool[valid.Length];
+            var random = new System.Random(seed);
+            candidates = 0;
+            changed = 0;
+            for (int i = 0; i < valid.Length; ++i)
+                if (valid[i]) ++candidates;
+            for (int patch = 0; patch < patchCount; ++patch)
+            {
+                int left = random.Next(0, source.Width - patchWidth + 1);
+                int top = random.Next(0, source.Height - patchHeight + 1);
+                double sign = random.NextDouble() < 0.5 ? -1.0 : 1.0;
+                for (int v = top; v < top + patchHeight; ++v)
+                    for (int u = left; u < left + patchWidth; ++u)
+                    {
+                        int i = v * source.Width + u;
+                        if (!valid[i] || touched[i]) continue;
+                        double modified = values[i] + sign * magnitudeMetres;
+                        if (modified <= 0) continue;
+                        values[i] = (float)modified;
+                        touched[i] = true;
+                        ++changed;
+                    }
+            }
+            return new GeneratedDepth(source.Width, source.Height, values, valid);
+        }
+
+        [ContextMenu("Run P0-F Clustered Outliers")]
+        public void RunClusteredOutliers()
+        {
+            if (sceneDefinition == null || sensorCamera == null)
+                throw new InvalidOperationException("P0-F references missing.");
+            int[] patchSizes = { 2, 4, 8 };
+            int[] patchCounts = { 1, 4, 12 };
+            float[] offsets = { 0f, 0.005f, 0.010f, 0.013f, 0.020f, 0.025f };
+            int[] seeds = { 20261009, 20261019, 20261029, 20261039, 20261049 };
+            try
+            {
+                for (int variant = 0; variant < patchSizes.Length; ++variant)
+                {
+                    int detected = 0, bounded = 0, covered = 0;
+                    long candidates = 0, changed = 0;
+                    double sumWidth = 0, sumError = 0, maxError = 0;
+                    for (int si = 0; si < seeds.Length; ++si)
+                        for (int k = 0; k < offsets.Length; ++k)
+                        {
+                            double error = RunInternal(false, offsets[k], false, 320, 240,
+                                false, 0, 20261009, 0, 20261009,
+                                0, 20261009, 0.05, false,
+                                patchSizes[variant], patchSizes[variant],
+                                patchCounts[variant], seeds[si] + k);
+                            candidates += lastOutlierCandidates;
+                            changed += lastOutlierCount;
+                            if (!double.IsNaN(error)) ++detected;
+                            if (double.IsNaN(lastLowerBound) ||
+                                double.IsNaN(lastProjectedUpper) ||
+                                lastProjectedUpper < lastLowerBound) continue;
+                            ++bounded;
+                            double truthZ = sceneDefinition.EdgeZMetres + offsets[k];
+                            if (ContainsWithTolerance(lastLowerBound, lastProjectedUpper, truthZ))
+                                ++covered;
+                            double absError = Math.Abs(lastProjectedMidpointError);
+                            sumWidth += (lastProjectedUpper - lastLowerBound) * 1000;
+                            sumError += absError;
+                            maxError = Math.Max(maxError, absError);
+                        }
+                    Debug.Log("[WalkEdgeLight P0-F Clustered] patch=" +
+                        patchSizes[variant] + "x" + patchSizes[variant] +
+                        ", patches=" + patchCounts[variant] +
+                        ", candidates=" + candidates + ", changed=" + changed +
+                        ", actualRate=" + (candidates == 0 ? "N/A" :
+                            (100.0 * changed / candidates).ToString("F3")) +
+                        "%, detected=" + detected + "/30, bounded=" + bounded +
+                        "/30, coverage=" + covered + "/30, meanWidth=" +
+                        (bounded == 0 ? "N/A" : (sumWidth / bounded).ToString("F3")) +
+                        " mm, midpointMAE=" +
+                        (bounded == 0 ? "N/A" : (sumError / bounded).ToString("F3")) +
+                        " mm, midpointMaxAbsError=" +
+                        (bounded == 0 ? "N/A" : maxError.ToString("F3")) + " mm");
+                }
+            }
+            finally
+            {
+                sceneDefinition.Build();
+                Physics.SyncTransforms();
+            }
+        }
+
         // Diagnostic only: compare raw far-side minimum against low quantiles.
         // Does not alter production boundary selection.
         [ContextMenu("Run P0-F Projected Far Quantile")]
@@ -1103,7 +1197,7 @@ namespace WalkEdgeLight.Validation.UnitySimulation
             }
         }
 
-        private double RunInternal(bool slanted, float edgeOffset = 0f, bool verbose = true, int imageWidth = 160, int imageHeight = 120, bool diagnoseBounds = false, double gaussianSigmaMetres = 0, int gaussianSeed = 20261009, double dropoutFraction = 0, int dropoutSeed = 20261009, double outlierFraction = 0, int outlierSeed = 20261009, double outlierMagnitudeMetres = 0.05, bool farQuantileDiagnostic = false)
+        private double RunInternal(bool slanted, float edgeOffset = 0f, bool verbose = true, int imageWidth = 160, int imageHeight = 120, bool diagnoseBounds = false, double gaussianSigmaMetres = 0, int gaussianSeed = 20261009, double dropoutFraction = 0, int dropoutSeed = 20261009, double outlierFraction = 0, int outlierSeed = 20261009, double outlierMagnitudeMetres = 0.05, bool farQuantileDiagnostic = false, int clusterWidth = 0, int clusterHeight = 0, int clusterCount = 0, int clusterSeed = 20261009)
         {
             lastLowerBound = double.NaN;
             lastRawLowerBound = double.NaN;
@@ -1149,6 +1243,15 @@ namespace WalkEdgeLight.Validation.UnitySimulation
             {
                 foreach (bool validPixel in depth.Valid)
                     if (validPixel) ++lastOutlierCandidates;
+            }
+            if (clusterCount > 0)
+            {
+                int clusterCandidates, clusterChanged;
+                depth = InjectClusteredDepthOutliers(depth, clusterWidth, clusterHeight,
+                    clusterCount, outlierMagnitudeMetres, clusterSeed,
+                    out clusterCandidates, out clusterChanged);
+                lastOutlierCandidates = clusterCandidates;
+                lastOutlierCount = clusterChanged;
             }
             var frame = P0ASensorFrameAdapter.Create(
                 0, Time.realtimeSinceStartupAsDouble, sensorCamera, depth);
