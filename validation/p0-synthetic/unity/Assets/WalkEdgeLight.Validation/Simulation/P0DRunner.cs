@@ -1302,18 +1302,26 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                         ", projectedUpper=" + (double.IsPositiveInfinity(projectedUpper) ? "N/A" : projectedUpper.ToString("F9")));
                 var refinedZ = double.IsNegativeInfinity(nearMax) || double.IsPositiveInfinity(farMin)
                     || farMin < nearMax ? coarseZ : (nearMax + farMin) * 0.5;
-                if (!double.IsNegativeInfinity(nearMax) && !double.IsPositiveInfinity(farMin) && farMin >= nearMax)
+                // P0-F-12: use robust far-side 2% quantile for interval bounds.
+                // Keep the existing refinedZ estimate unchanged for detection regression.
+                if (nearZValues.Count > 0 && farZValues.Count > 0)
                 {
-                    commonLower = Math.Max(commonLower, nearMax);
-                    commonPercentileLower = Math.Max(commonPercentileLower, Quantile(nearZValues, 0.95));
-                    for (int q = 0; q < quantileFractions.Length; ++q)
-                        commonQuantileLowers[q] = Math.Max(commonQuantileLowers[q], Quantile(nearZValues, quantileFractions[q]));
-                    commonUpper = Math.Min(commonUpper, farMin);
-                    ++boundedStrips;
-                    if (!double.IsPositiveInfinity(projectedUpper))
+                    double nearLower95 = Quantile(nearZValues, 0.95);
+                    double farLower2 = Quantile(farZValues, 0.02);
+                    if (farLower2 >= nearLower95)
                     {
-                        commonProjectedUpper = Math.Min(commonProjectedUpper, projectedUpper);
-                        ++projectedStrips;
+                        commonLower = Math.Max(commonLower, nearMax);
+                        commonPercentileLower = Math.Max(commonPercentileLower, nearLower95);
+                        for (int q = 0; q < quantileFractions.Length; ++q)
+                            commonQuantileLowers[q] = Math.Max(commonQuantileLowers[q],
+                                Quantile(nearZValues, quantileFractions[q]));
+                        commonUpper = Math.Min(commonUpper, farLower2);
+                        ++boundedStrips;
+                        if (!double.IsPositiveInfinity(projectedUpper))
+                        {
+                            commonProjectedUpper = Math.Min(commonProjectedUpper, projectedUpper);
+                            ++projectedStrips;
+                        }
                     }
                 }
                 xs.Add(-1.0 + (s + 0.5) * 0.25);
