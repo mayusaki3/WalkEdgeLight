@@ -366,6 +366,14 @@ namespace WalkEdgeLight.Validation.UnitySimulation
         // Diagnostic only: the selected component may exclude other supported components.
         private bool TrySupportedInterval(int required, out double lower, out double upper)
         {
+            int components;
+            return TrySupportedInterval(required, out lower, out upper, out components);
+        }
+
+        private bool TrySupportedInterval(int required, out double lower, out double upper,
+            out int components)
+        {
+            components = 0;
             lower = double.NaN;
             upper = double.NaN;
             var endpoints = new List<double>();
@@ -398,6 +406,7 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                 }
                 else if (!double.IsNaN(runStart))
                 {
+                    ++components;
                     if (runEnd - runStart > bestWidth)
                     {
                         lower = runStart;
@@ -407,6 +416,7 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                     runStart = double.NaN;
                 }
             }
+            if (!double.IsNaN(runStart)) ++components;
             if (!double.IsNaN(runStart) && runEnd - runStart > bestWidth)
             {
                 lower = runStart;
@@ -414,6 +424,80 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                 bestWidth = runEnd - runStart;
             }
             return bestWidth >= 0;
+        }
+
+        // P0-F-19: strength/density sweep; diagnostic-only, never changes production bounds.
+        [ContextMenu("Run P0-F Cluster Stress Diagnostic")]
+        public void RunClusterStressDiagnostic()
+        {
+            if (sceneDefinition == null || sensorCamera == null)
+                throw new InvalidOperationException("P0-F references missing.");
+            int[] sizes = { 4, 8, 16 };
+            int[] counts = { 4, 12, 24 };
+            double[] magnitudes = { 0.02, 0.05, 0.10 };
+            int[] thresholds = { 8, 7, 6, 5 };
+            float[] offsets = { 0f, 0.010f, 0.025f };
+            int[] seeds = { 20261009, 20261039, 20261049 };
+            try
+            {
+                foreach (int size in sizes)
+                    foreach (int count in counts)
+                        foreach (double magnitude in magnitudes)
+                        {
+                            int[] bounded = new int[4], covered = new int[4], multiple = new int[4];
+                            double[] widths = new double[4], maxError = new double[4];
+                            int changed = 0, candidates = 0;
+                            foreach (int seed in seeds)
+                                for (int k = 0; k < offsets.Length; ++k)
+                                {
+                                    RunInternal(false, offsets[k], false, 320, 240,
+                                        false, 0, 20261009, 0, 20261009,
+                                        0, 20261009, magnitude, false,
+                                        size, size, count, seed + k, true, 0);
+                                    changed += lastOutlierCount;
+                                    candidates += lastOutlierCandidates;
+                                    double truth = sceneDefinition.EdgeZMetres + offsets[k];
+                                    for (int t = 0; t < thresholds.Length; ++t)
+                                    {
+                                        double lower, upper;
+                                        int components;
+                                        if (!TrySupportedInterval(thresholds[t], out lower, out upper,
+                                            out components)) continue;
+                                        ++bounded[t];
+                                        if (components > 1) ++multiple[t];
+                                        if (ContainsWithTolerance(lower, upper, truth)) ++covered[t];
+                                        widths[t] += (upper - lower) * 1000.0;
+                                        maxError[t] = Math.Max(maxError[t],
+                                            Math.Abs((lower + upper) * 0.5 - truth) * 1000.0);
+                                        if (!ContainsWithTolerance(lower, upper, truth))
+                                            Debug.Log("[WalkEdgeLight P0-F StressFail] size=" + size +
+                                                ", patches=" + count +
+                                                ", magnitudeMm=" + (magnitude * 1000).ToString("F0") +
+                                                ", required=" + thresholds[t] +
+                                                ", seed=" + (seed + k) +
+                                                ", offset=" + offsets[k].ToString("F3") +
+                                                ", truth=" + truth.ToString("F9") +
+                                                ", lower=" + lower.ToString("F9") +
+                                                ", upper=" + upper.ToString("F9") +
+                                                ", components=" + components);
+                                    }
+                                }
+                            for (int t = 0; t < thresholds.Length; ++t)
+                                Debug.Log("[WalkEdgeLight P0-F Stress] size=" + size +
+                                    ", patches=" + count +
+                                    ", magnitudeMm=" + (magnitude * 1000).ToString("F0") +
+                                    ", required=" + thresholds[t] + "/8" +
+                                    ", changedRate=" + (candidates == 0 ? 0 :
+                                        100.0 * changed / candidates).ToString("F3") + "%" +
+                                    ", bounded=" + bounded[t] + "/9" +
+                                    ", coverage=" + covered[t] + "/9" +
+                                    ", multiComponent=" + multiple[t] + "/9" +
+                                    ", meanWidthMm=" + (bounded[t] == 0 ? "N/A" :
+                                        (widths[t] / bounded[t]).ToString("F3")) +
+                                    ", maxErrorMm=" + maxError[t].ToString("F3"));
+                        }
+            }
+            finally { sceneDefinition.Build(); Physics.SyncTransforms(); }
         }
 
         [ContextMenu("Run P0-F Supported Interval Diagnostic")]
