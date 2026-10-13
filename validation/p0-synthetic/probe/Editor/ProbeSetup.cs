@@ -314,6 +314,16 @@ namespace WalkEdgeLight.Validation.Editor
             runner.RunOutlierDiagnostic();
         }
 
+        [MenuItem("WalkEdgeLight/Probe/Run P0-F Cluster Stress Diagnostic")]
+        internal static void RunP0FClusterStressDiagnostic()
+        {
+            var root = GameObject.Find(RootName);
+            Require(root != null, "Run Setup P0-A first");
+            var runner = root.GetComponent<P0DRunner>();
+            Require(runner != null, "P0DRunner missing");
+            runner.RunClusterStressDiagnostic();
+        }
+
         [MenuItem("WalkEdgeLight/Probe/Run P0-F Supported Interval Diagnostic")]
         internal static void RunP0FSupportedIntervalDiagnostic()
         {
