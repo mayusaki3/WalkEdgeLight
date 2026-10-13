@@ -340,6 +340,57 @@ namespace WalkEdgeLight.Validation.UnitySimulation
             return new GeneratedDepth(source.Width, source.Height, values, valid);
         }
 
+        [ContextMenu("Run P0-F Clustered Failure Diagnostic")]
+        public void RunClusteredFailureDiagnostic()
+        {
+            if (sceneDefinition == null || sensorCamera == null)
+                throw new InvalidOperationException("P0-F references missing.");
+            int[] sizes = { 2, 4, 8 };
+            int[] counts = { 1, 4, 12 };
+            float[] offsets = { 0f, 0.005f, 0.010f, 0.013f, 0.020f, 0.025f };
+            int[] seeds = { 20261009, 20261019, 20261029, 20261039, 20261049 };
+            try
+            {
+                for (int variant = 0; variant < sizes.Length; ++variant)
+                {
+                    int failures = 0;
+                    for (int si = 0; si < seeds.Length; ++si)
+                        for (int k = 0; k < offsets.Length; ++k)
+                        {
+                            RunInternal(false, offsets[k], false, 320, 240,
+                                false, 0, 20261009, 0, 20261009,
+                                0, 20261009, 0.05, false,
+                                sizes[variant], sizes[variant], counts[variant],
+                                seeds[si] + k);
+                            if (!double.IsNaN(lastLowerBound) &&
+                                !double.IsNaN(lastProjectedUpper) &&
+                                lastProjectedUpper >= lastLowerBound) continue;
+                            ++failures;
+                            Debug.Log("[WalkEdgeLight P0-F ClusterDiag] FAIL patch=" +
+                                sizes[variant] + "x" + sizes[variant] +
+                                ", patches=" + counts[variant] +
+                                ", seed=" + (seeds[si] + k) +
+                                ", offset=" + offsets[k].ToString("F3") +
+                                ", truthZ=" + (sceneDefinition.EdgeZMetres + offsets[k]).ToString("F9") +
+                                ", changed=" + lastOutlierCount);
+                            RunInternal(false, offsets[k], false, 320, 240,
+                                true, 0, 20261009, 0, 20261009,
+                                0, 20261009, 0.05, false,
+                                sizes[variant], sizes[variant], counts[variant],
+                                seeds[si] + k);
+                        }
+                    Debug.Log("[WalkEdgeLight P0-F ClusterDiag] summary patch=" +
+                        sizes[variant] + "x" + sizes[variant] +
+                        ", failures=" + failures + "/30");
+                }
+            }
+            finally
+            {
+                sceneDefinition.Build();
+                Physics.SyncTransforms();
+            }
+        }
+
         [ContextMenu("Run P0-F Clustered Outliers")]
         public void RunClusteredOutliers()
         {
@@ -1342,7 +1393,13 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                         bestBin = b;
                     }
                 }
-                if (bestBin < 0) continue;
+                if (bestBin < 0)
+                {
+                    if (diagnoseBounds)
+                        Debug.Log("[WalkEdgeLight P0-F ClusterDiag] strip=" + s +
+                            ", status=NO_EDGE_BIN");
+                    continue;
+                }
                 // Refine the coarse 25 mm bin using raw reconstructed points.
                 // Only classify samples close to the candidate edge; do not use truth.
                 var coarseZ = bestBin * BinWidth;
@@ -1396,6 +1453,24 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                             ++diagnosticProjectedValidStrips[q];
                         }
                     }
+                }
+                if (diagnoseBounds)
+                {
+                    double near95 = nearZValues.Count == 0 ? double.NaN :
+                        Quantile(nearZValues, 0.95);
+                    double far2 = farZValues.Count == 0 ? double.NaN :
+                        Quantile(farZValues, 0.02);
+                    Debug.Log("[WalkEdgeLight P0-F ClusterDiag] strip=" + s +
+                        ", bestBin=" + bestBin +
+                        ", nearCount=" + nearZValues.Count +
+                        ", farCount=" + farZValues.Count +
+                        ", near95=" + near95.ToString("F9") +
+                        ", far2=" + far2.ToString("F9") +
+                        ", projectedUpper=" + (double.IsPositiveInfinity(projectedUpper) ?
+                            "N/A" : projectedUpper.ToString("F9")) +
+                        ", quantileValid=" + (far2 >= near95) +
+                        ", projectedValid=" + (!double.IsPositiveInfinity(projectedUpper)) +
+                        ", projectedAboveNear=" + (projectedUpper >= near95));
                 }
                 if (diagnoseBounds)
                     Debug.Log("[WalkEdgeLight P0-E BoundDiag] strip=" + s +
