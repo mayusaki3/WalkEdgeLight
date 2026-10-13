@@ -380,6 +380,7 @@ namespace WalkEdgeLight.Validation.UnitySimulation
             if (valid < required) return false;
             endpoints.Sort();
             double bestWidth = -1;
+            double runStart = double.NaN, runEnd = double.NaN;
             for (int i = 0; i + 1 < endpoints.Count; ++i)
             {
                 double a = endpoints[i], b = endpoints[i + 1];
@@ -390,19 +391,27 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                     if (lastDetailStripValid[s] &&
                         lastDetailStripLower[s] <= mid &&
                         lastDetailStripUpper[s] >= mid) ++support;
-                if (support < required) continue;
-                // Merge adjacent qualifying segments.
-                if (bestWidth >= 0 && Math.Abs(upper - a) < 1e-10)
+                if (support >= required)
                 {
-                    upper = b;
-                    bestWidth = upper - lower;
+                    if (double.IsNaN(runStart)) runStart = a;
+                    runEnd = b;
                 }
-                else if (b - a > bestWidth)
+                else if (!double.IsNaN(runStart))
                 {
-                    lower = a;
-                    upper = b;
-                    bestWidth = b - a;
+                    if (runEnd - runStart > bestWidth)
+                    {
+                        lower = runStart;
+                        upper = runEnd;
+                        bestWidth = runEnd - runStart;
+                    }
+                    runStart = double.NaN;
                 }
+            }
+            if (!double.IsNaN(runStart) && runEnd - runStart > bestWidth)
+            {
+                lower = runStart;
+                upper = runEnd;
+                bestWidth = runEnd - runStart;
             }
             return bestWidth >= 0;
         }
