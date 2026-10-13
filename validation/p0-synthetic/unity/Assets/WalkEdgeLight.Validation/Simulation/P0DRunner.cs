@@ -29,6 +29,9 @@ namespace WalkEdgeLight.Validation.UnitySimulation
         private double lastUpperBound = double.NaN;
         private double lastProjectedUpper = double.NaN;
         private double lastProjectedMidpointError = double.NaN;
+        private int lastQuorumValidStrips;
+        private double lastQuorumLower = double.NaN;
+        private double lastQuorumUpper = double.NaN;
         // Validation-only numerical tolerance; not a depth sensor accuracy claim.
         private const double BoundToleranceMetres = 0.000010;
         private static bool ContainsWithTolerance(double lower, double upper, double value)
@@ -338,6 +341,63 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                     }
             }
             return new GeneratedDepth(source.Width, source.Height, values, valid);
+        }
+
+        [ContextMenu("Run P0-F Clustered Quorum Diagnostic")]
+        public void RunClusteredQuorumDiagnostic()
+        {
+            if (sceneDefinition == null || sensorCamera == null)
+                throw new InvalidOperationException("P0-F references missing.");
+            int[] sizes = { 2, 4, 8 };
+            int[] counts = { 1, 4, 12 };
+            int[] thresholds = { 8, 7, 6, 5 };
+            float[] offsets = { 0f, 0.005f, 0.010f, 0.013f, 0.020f, 0.025f };
+            int[] seeds = { 20261009, 20261019, 20261029, 20261039, 20261049 };
+            try
+            {
+                for (int variant = 0; variant < sizes.Length; ++variant)
+                {
+                    int[] detected = new int[4], bounded = new int[4], covered = new int[4];
+                    double[] widths = new double[4], errors = new double[4], maxima = new double[4];
+                    for (int si = 0; si < seeds.Length; ++si)
+                        for (int k = 0; k < offsets.Length; ++k)
+                        {
+                            double result = RunInternal(false, offsets[k], false, 320, 240,
+                                false, 0, 20261009, 0, 20261009,
+                                0, 20261009, 0.05, false,
+                                sizes[variant], sizes[variant], counts[variant],
+                                seeds[si] + k, true);
+                            double truthZ = sceneDefinition.EdgeZMetres + offsets[k];
+                            for (int t = 0; t < thresholds.Length; ++t)
+                            {
+                                if (!double.IsNaN(result)) ++detected[t];
+                                if (lastQuorumValidStrips < thresholds[t] ||
+                                    double.IsNaN(lastQuorumLower) ||
+                                    double.IsNaN(lastQuorumUpper) ||
+                                    lastQuorumUpper < lastQuorumLower) continue;
+                                ++bounded[t];
+                                if (ContainsWithTolerance(lastQuorumLower, lastQuorumUpper, truthZ))
+                                    ++covered[t];
+                                widths[t] += (lastQuorumUpper - lastQuorumLower) * 1000.0;
+                                double e = Math.Abs((lastQuorumLower + lastQuorumUpper) * 0.5 - truthZ) * 1000.0;
+                                errors[t] += e;
+                                maxima[t] = Math.Max(maxima[t], e);
+                            }
+                        }
+                    for (int t = 0; t < thresholds.Length; ++t)
+                        Debug.Log("[WalkEdgeLight P0-F Quorum] patch=" + sizes[variant] +
+                            "x" + sizes[variant] + ", patches=" + counts[variant] +
+                            ", required=" + thresholds[t] + "/8, detected=" + detected[t] +
+                            "/30, bounded=" + bounded[t] + "/30, coverage=" + covered[t] +
+                            "/30, meanWidth=" + (bounded[t] == 0 ? "N/A" :
+                                (widths[t] / bounded[t]).ToString("F3")) +
+                            " mm, midpointMAE=" + (bounded[t] == 0 ? "N/A" :
+                                (errors[t] / bounded[t]).ToString("F3")) +
+                            " mm, midpointMaxAbsError=" + (bounded[t] == 0 ? "N/A" :
+                                maxima[t].ToString("F3")) + " mm");
+                }
+            }
+            finally { sceneDefinition.Build(); Physics.SyncTransforms(); }
         }
 
         [ContextMenu("Run P0-F Clustered Failure Diagnostic")]
@@ -1248,7 +1308,7 @@ namespace WalkEdgeLight.Validation.UnitySimulation
             }
         }
 
-        private double RunInternal(bool slanted, float edgeOffset = 0f, bool verbose = true, int imageWidth = 160, int imageHeight = 120, bool diagnoseBounds = false, double gaussianSigmaMetres = 0, int gaussianSeed = 20261009, double dropoutFraction = 0, int dropoutSeed = 20261009, double outlierFraction = 0, int outlierSeed = 20261009, double outlierMagnitudeMetres = 0.05, bool farQuantileDiagnostic = false, int clusterWidth = 0, int clusterHeight = 0, int clusterCount = 0, int clusterSeed = 20261009)
+        private double RunInternal(bool slanted, float edgeOffset = 0f, bool verbose = true, int imageWidth = 160, int imageHeight = 120, bool diagnoseBounds = false, double gaussianSigmaMetres = 0, int gaussianSeed = 20261009, double dropoutFraction = 0, int dropoutSeed = 20261009, double outlierFraction = 0, int outlierSeed = 20261009, double outlierMagnitudeMetres = 0.05, bool farQuantileDiagnostic = false, int clusterWidth = 0, int clusterHeight = 0, int clusterCount = 0, int clusterSeed = 20261009, bool quorumDiagnostic = false)
         {
             lastLowerBound = double.NaN;
             lastRawLowerBound = double.NaN;
@@ -1272,6 +1332,9 @@ namespace WalkEdgeLight.Validation.UnitySimulation
             lastUpperBound = double.NaN;
             lastProjectedUpper = double.NaN;
             lastProjectedMidpointError = double.NaN;
+            lastQuorumValidStrips = 0;
+            lastQuorumLower = double.NaN;
+            lastQuorumUpper = double.NaN;
             if (sceneDefinition == null || sensorCamera == null)
                 throw new InvalidOperationException("P0-D references missing.");
             if (slanted) sceneDefinition.BuildSlanted(0.2f);
@@ -1363,6 +1426,9 @@ namespace WalkEdgeLight.Validation.UnitySimulation
             double[] diagnosticFarFractions = { 0.00, 0.02, 0.05, 0.10 };
             int projectedStrips = 0;
             int boundedStrips = 0;
+            double quorumLower = double.NegativeInfinity;
+            double quorumUpper = double.PositiveInfinity;
+            int quorumStrips = 0;
             for (int s = 0; s < Strips; ++s)
             {
                 var means = new double[Bins];
@@ -1486,6 +1552,14 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                 {
                     double nearLower95 = Quantile(nearZValues, 0.95);
                     double farLower2 = Quantile(farZValues, 0.02);
+                    if (quorumDiagnostic && farLower2 >= nearLower95 &&
+                        !double.IsPositiveInfinity(projectedUpper) &&
+                        projectedUpper >= nearLower95)
+                    {
+                        quorumLower = Math.Max(quorumLower, nearLower95);
+                        quorumUpper = Math.Min(quorumUpper, Math.Min(farLower2, projectedUpper));
+                        ++quorumStrips;
+                    }
                     if (farLower2 >= nearLower95)
                     {
                         commonLower = Math.Max(commonLower, nearMax);
@@ -1516,6 +1590,12 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                     lastFarQuantileLowers[q] = diagnosticFarLowers[q];
                     lastFarQuantileUppers[q] = diagnosticFarUppers[q];
                 }
+            }
+            if (quorumDiagnostic && quorumStrips > 0)
+            {
+                lastQuorumValidStrips = quorumStrips;
+                lastQuorumLower = quorumLower;
+                lastQuorumUpper = quorumUpper;
             }
             if (xs.Count < 2)
             {
