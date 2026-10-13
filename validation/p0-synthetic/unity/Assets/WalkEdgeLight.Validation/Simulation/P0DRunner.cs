@@ -33,6 +33,12 @@ namespace WalkEdgeLight.Validation.UnitySimulation
         private double lastQuorumLower = double.NaN;
         private double lastQuorumUpper = double.NaN;
         private double lastQuorumMidpointSpread = double.NaN;
+        private readonly bool[] lastDetailStripValid = new bool[Strips];
+        private readonly double[] lastDetailStripNear95 = new double[Strips];
+        private readonly double[] lastDetailStripFar2 = new double[Strips];
+        private readonly double[] lastDetailStripProjected = new double[Strips];
+        private readonly double[] lastDetailStripLower = new double[Strips];
+        private readonly double[] lastDetailStripUpper = new double[Strips];
         // Validation-only numerical tolerance; not a depth sensor accuracy claim.
         private const double BoundToleranceMetres = 0.000010;
         private static bool ContainsWithTolerance(double lower, double upper, double value)
@@ -355,6 +361,65 @@ namespace WalkEdgeLight.Validation.UnitySimulation
         }
 
         // P0-F-16: concentrated spatial errors and strip disagreement, diagnostic only.
+        // P0-F-17: log only failing truth-coverage cases, including each strip.
+        [ContextMenu("Run P0-F Concentrated Failure Detail")]
+        public void RunConcentratedFailureDetail()
+        {
+            if (sceneDefinition == null || sensorCamera == null)
+                throw new InvalidOperationException("P0-F references missing.");
+            float[] offsets = { 0f, 0.005f, 0.010f, 0.013f, 0.020f, 0.025f };
+            int[] seeds = { 20261009, 20261019, 20261029, 20261039, 20261049 };
+            try
+            {
+                for (int mode = 1; mode <= 3; ++mode)
+                {
+                    int failures = 0;
+                    for (int si = 0; si < seeds.Length; ++si)
+                        for (int k = 0; k < offsets.Length; ++k)
+                        {
+                            int seed = seeds[si] + k;
+                            RunInternal(false, offsets[k], false, 320, 240,
+                                false, 0, 20261009, 0, 20261009,
+                                0, 20261009, 0.05, false,
+                                8, 8, 12, seed, true, mode);
+                            double truth = sceneDefinition.EdgeZMetres + offsets[k];
+                            bool valid = lastQuorumValidStrips >= 5 &&
+                                !double.IsNaN(lastQuorumLower) &&
+                                !double.IsNaN(lastQuorumUpper) &&
+                                lastQuorumUpper >= lastQuorumLower;
+                            if (valid && ContainsWithTolerance(lastQuorumLower, lastQuorumUpper, truth))
+                                continue;
+                            ++failures;
+                            string failure = !valid ? "INVALID_BOUNDS" :
+                                truth < lastQuorumLower - BoundToleranceMetres ? "TRUTH_BELOW_LOWER" :
+                                "TRUTH_ABOVE_UPPER";
+                            Debug.Log("[WalkEdgeLight P0-F ConcentratedDetail] FAIL mode=" + mode +
+                                ", seed=" + seed + ", offset=" + offsets[k].ToString("F3") +
+                                ", truthZ=" + truth.ToString("F9") +
+                                ", validStrips=" + lastQuorumValidStrips +
+                                ", lower=" + lastQuorumLower.ToString("F9") +
+                                ", upper=" + lastQuorumUpper.ToString("F9") +
+                                ", widthMm=" + ((lastQuorumUpper - lastQuorumLower) * 1000.0).ToString("F3") +
+                                ", midpointErrorMm=" + (((lastQuorumLower + lastQuorumUpper) * 0.5 - truth) * 1000.0).ToString("F3") +
+                                ", spreadMm=" + (lastQuorumMidpointSpread * 1000.0).ToString("F3") +
+                                ", reason=" + failure);
+                            for (int s = 0; s < Strips; ++s)
+                                Debug.Log("[WalkEdgeLight P0-F ConcentratedDetail] strip=" + s +
+                                    ", valid=" + lastDetailStripValid[s] +
+                                    ", near95=" + lastDetailStripNear95[s].ToString("F9") +
+                                    ", far2=" + lastDetailStripFar2[s].ToString("F9") +
+                                    ", projectedUpper=" + lastDetailStripProjected[s].ToString("F9") +
+                                    ", lower=" + lastDetailStripLower[s].ToString("F9") +
+                                    ", upper=" + lastDetailStripUpper[s].ToString("F9") +
+                                    ", midpoint=" + ((lastDetailStripLower[s] + lastDetailStripUpper[s]) * 0.5).ToString("F9"));
+                        }
+                    Debug.Log("[WalkEdgeLight P0-F ConcentratedDetail] summary mode=" +
+                        mode + ", failures=" + failures + "/30");
+                }
+            }
+            finally { sceneDefinition.Build(); Physics.SyncTransforms(); }
+        }
+
         [ContextMenu("Run P0-F Concentrated Cluster Diagnostic")]
         public void RunConcentratedClusterDiagnostic()
         {
@@ -1408,6 +1473,15 @@ namespace WalkEdgeLight.Validation.UnitySimulation
             lastQuorumLower = double.NaN;
             lastQuorumUpper = double.NaN;
             lastQuorumMidpointSpread = double.NaN;
+            for (int s = 0; s < Strips; ++s)
+            {
+                lastDetailStripValid[s] = false;
+                lastDetailStripNear95[s] = double.NaN;
+                lastDetailStripFar2[s] = double.NaN;
+                lastDetailStripProjected[s] = double.NaN;
+                lastDetailStripLower[s] = double.NaN;
+                lastDetailStripUpper[s] = double.NaN;
+            }
             if (sceneDefinition == null || sensorCamera == null)
                 throw new InvalidOperationException("P0-D references missing.");
             if (slanted) sceneDefinition.BuildSlanted(0.2f);
@@ -1627,6 +1701,21 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                 {
                     double nearLower95 = Quantile(nearZValues, 0.95);
                     double farLower2 = Quantile(farZValues, 0.02);
+                    if (quorumDiagnostic)
+                    {
+                        lastDetailStripNear95[s] = nearLower95;
+                        lastDetailStripFar2[s] = farLower2;
+                        lastDetailStripProjected[s] = double.IsPositiveInfinity(projectedUpper) ?
+                            double.NaN : projectedUpper;
+                        lastDetailStripValid[s] = farLower2 >= nearLower95 &&
+                            !double.IsPositiveInfinity(projectedUpper) &&
+                            projectedUpper >= nearLower95;
+                        if (lastDetailStripValid[s])
+                        {
+                            lastDetailStripLower[s] = nearLower95;
+                            lastDetailStripUpper[s] = Math.Min(farLower2, projectedUpper);
+                        }
+                    }
                     if (quorumDiagnostic && farLower2 >= nearLower95 &&
                         !double.IsPositiveInfinity(projectedUpper) &&
                         projectedUpper >= nearLower95)
