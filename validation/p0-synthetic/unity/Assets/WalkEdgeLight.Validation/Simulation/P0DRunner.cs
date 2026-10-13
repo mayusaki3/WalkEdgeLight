@@ -314,7 +314,7 @@ namespace WalkEdgeLight.Validation.UnitySimulation
         // P0-F-13: contiguous rectangular depth errors, independent of edge truth.
         private static GeneratedDepth InjectClusteredDepthOutliers(GeneratedDepth source,
             int patchWidth, int patchHeight, int patchCount, double magnitudeMetres,
-            int seed, out int candidates, out int changed)
+            int seed, out int candidates, out int changed, int placementMode = 0)
         {
             var values = (float[])source.DepthMetres.Clone();
             var valid = (bool[])source.Valid.Clone();
