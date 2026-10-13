@@ -362,6 +362,108 @@ namespace WalkEdgeLight.Validation.UnitySimulation
 
         // P0-F-16: concentrated spatial errors and strip disagreement, diagnostic only.
         // P0-F-17: log only failing truth-coverage cases, including each strip.
+        // P0-F-18: choose the longest connected interval supported by >= k strips.
+        // Diagnostic only: the selected component may exclude other supported components.
+        private bool TrySupportedInterval(int required, out double lower, out double upper)
+        {
+            lower = double.NaN;
+            upper = double.NaN;
+            var endpoints = new List<double>();
+            int valid = 0;
+            for (int s = 0; s < Strips; ++s)
+            {
+                if (!lastDetailStripValid[s]) continue;
+                ++valid;
+                endpoints.Add(lastDetailStripLower[s]);
+                endpoints.Add(lastDetailStripUpper[s]);
+            }
+            if (valid < required) return false;
+            endpoints.Sort();
+            double bestWidth = -1;
+            for (int i = 0; i + 1 < endpoints.Count; ++i)
+            {
+                double a = endpoints[i], b = endpoints[i + 1];
+                if (b <= a) continue;
+                double mid = (a + b) * 0.5;
+                int support = 0;
+                for (int s = 0; s < Strips; ++s)
+                    if (lastDetailStripValid[s] &&
+                        lastDetailStripLower[s] <= mid &&
+                        lastDetailStripUpper[s] >= mid) ++support;
+                if (support < required) continue;
+                // Merge adjacent qualifying segments.
+                if (bestWidth >= 0 && Math.Abs(upper - a) < 1e-10)
+                {
+                    upper = b;
+                    bestWidth = upper - lower;
+                }
+                else if (b - a > bestWidth)
+                {
+                    lower = a;
+                    upper = b;
+                    bestWidth = b - a;
+                }
+            }
+            return bestWidth >= 0;
+        }
+
+        [ContextMenu("Run P0-F Supported Interval Diagnostic")]
+        public void RunSupportedIntervalDiagnostic()
+        {
+            if (sceneDefinition == null || sensorCamera == null)
+                throw new InvalidOperationException("P0-F references missing.");
+            int[] thresholds = { 8, 7, 6, 5 };
+            float[] offsets = { 0f, 0.005f, 0.010f, 0.013f, 0.020f, 0.025f };
+            int[] seeds = { 20261009, 20261019, 20261029, 20261039, 20261049 };
+            try
+            {
+                for (int mode = 0; mode <= 3; ++mode)
+                {
+                    int[] bounded = new int[4], covered = new int[4];
+                    double[] widths = new double[4], errors = new double[4], maxima = new double[4];
+                    for (int si = 0; si < seeds.Length; ++si)
+                        for (int k = 0; k < offsets.Length; ++k)
+                        {
+                            int seed = seeds[si] + k;
+                            RunInternal(false, offsets[k], false, 320, 240,
+                                false, 0, 20261009, 0, 20261009,
+                                0, 20261009, 0.05, false,
+                                8, 8, 12, seed, true, mode);
+                            double truth = sceneDefinition.EdgeZMetres + offsets[k];
+                            for (int t = 0; t < thresholds.Length; ++t)
+                            {
+                                double lower, upper;
+                                if (!TrySupportedInterval(thresholds[t], out lower, out upper))
+                                    continue;
+                                ++bounded[t];
+                                if (ContainsWithTolerance(lower, upper, truth)) ++covered[t];
+                                widths[t] += (upper - lower) * 1000.0;
+                                double error = Math.Abs((lower + upper) * 0.5 - truth) * 1000.0;
+                                errors[t] += error;
+                                maxima[t] = Math.Max(maxima[t], error);
+                                if (!ContainsWithTolerance(lower, upper, truth))
+                                    Debug.Log("[WalkEdgeLight P0-F SupportFail] mode=" + mode +
+                                        ", required=" + thresholds[t] +
+                                        ", seed=" + seed +
+                                        ", offset=" + offsets[k].ToString("F3") +
+                                        ", truth=" + truth.ToString("F9") +
+                                        ", lower=" + lower.ToString("F9") +
+                                        ", upper=" + upper.ToString("F9"));
+                            }
+                        }
+                    for (int t = 0; t < thresholds.Length; ++t)
+                        Debug.Log("[WalkEdgeLight P0-F Support] mode=" + mode +
+                            ", required=" + thresholds[t] + "/8, bounded=" + bounded[t] +
+                            "/30, coverage=" + covered[t] + "/30, meanWidthMm=" +
+                            (bounded[t] == 0 ? "N/A" : (widths[t] / bounded[t]).ToString("F3")) +
+                            ", midpointMAEMm=" +
+                            (bounded[t] == 0 ? "N/A" : (errors[t] / bounded[t]).ToString("F3")) +
+                            ", maxErrorMm=" + maxima[t].ToString("F3"));
+                }
+            }
+            finally { sceneDefinition.Build(); Physics.SyncTransforms(); }
+        }
+
         [ContextMenu("Run P0-F Concentrated Failure Detail")]
         public void RunConcentratedFailureDetail()
         {
