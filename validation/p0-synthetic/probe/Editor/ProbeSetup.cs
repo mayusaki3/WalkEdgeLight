@@ -314,6 +314,16 @@ namespace WalkEdgeLight.Validation.Editor
             runner.RunOutlierDiagnostic();
         }
 
+        [MenuItem("WalkEdgeLight/Probe/Run P0-F Concentrated Failure Detail")]
+        internal static void RunP0FConcentratedFailureDetail()
+        {
+            var root = GameObject.Find(RootName);
+            Require(root != null, "Run Setup P0-A first");
+            var runner = root.GetComponent<P0DRunner>();
+            Require(runner != null, "P0DRunner missing");
+            runner.RunConcentratedFailureDetail();
+        }
+
         [MenuItem("WalkEdgeLight/Probe/Run P0-F Concentrated Cluster Diagnostic")]
         internal static void RunP0FConcentratedClusterDiagnostic()
         {
