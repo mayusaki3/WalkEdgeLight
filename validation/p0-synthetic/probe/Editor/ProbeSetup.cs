@@ -314,6 +314,16 @@ namespace WalkEdgeLight.Validation.Editor
             runner.RunOutlierDiagnostic();
         }
 
+        [MenuItem("WalkEdgeLight/Probe/Run P0-F Spatial Recovery Stress")]
+        internal static void RunP0FSpatialRecoveryStress()
+        {
+            var root = GameObject.Find(RootName);
+            Require(root != null, "Run Setup P0-A first");
+            var runner = root.GetComponent<P0DRunner>();
+            Require(runner != null, "P0DRunner missing");
+            runner.RunSpatialRecoveryStress();
+        }
+
         [MenuItem("WalkEdgeLight/Probe/Run P0-F Upper Recovery Diagnostic")]
         internal static void RunP0FUpperRecoveryDiagnostic()
         {
