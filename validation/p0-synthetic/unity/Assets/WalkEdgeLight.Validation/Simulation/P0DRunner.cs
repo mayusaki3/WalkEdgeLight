@@ -746,6 +746,99 @@ namespace WalkEdgeLight.Validation.UnitySimulation
             finally { sceneDefinition.Build(); Physics.SyncTransforms(); }
         }
 
+        // P0-F-25: reproduce the correlated four-strip false positive.
+        // Diagnostic only; no production estimator changes.
+        public void RunCorrelatedBandFailureDetail()
+        {
+            if (sceneDefinition == null || sensorCamera == null)
+                throw new InvalidOperationException("P0-F references missing.");
+            try
+            {
+                RunInternal(false, 0.025f, false, 320, 240,
+                    false, 0, 20261009, 0, 20261009,
+                    0, 20261009, 0.02, false,
+                    160, 32, 1, 20261051, true, 5);
+                double truth = sceneDefinition.EdgeZMetres + 0.025f;
+                Debug.Log("[WalkEdgeLight P0-F BandDetail] case=placement5 width160 height32 magnitude20mm seed20261051 offset0.025" +
+                    ", truth=" + truth.ToString("F9") +
+                    ", changed=" + lastOutlierCount +
+                    ", candidates=" + lastOutlierCandidates +
+                    ", validStrips=" + lastQuorumValidStrips);
+                for (int s = 0; s < Strips; ++s)
+                    Debug.Log("[WalkEdgeLight P0-F BandDetail] strip=" + s +
+                        ", valid=" + lastDetailStripValid[s] +
+                        ", near95=" + lastDetailStripNear95[s].ToString("F9") +
+                        ", far2=" + lastDetailStripFar2[s].ToString("F9") +
+                        ", projectedUpper=" + lastDetailStripProjected[s].ToString("F9") +
+                        ", lower=" + lastDetailStripLower[s].ToString("F9") +
+                        ", upper=" + lastDetailStripUpper[s].ToString("F9"));
+                var endpoints = new List<double>();
+                for (int s = 0; s < Strips; ++s)
+                    if (lastDetailStripValid[s])
+                    {
+                        endpoints.Add(lastDetailStripLower[s]);
+                        endpoints.Add(lastDetailStripUpper[s]);
+                    }
+                endpoints.Sort();
+                foreach (int required in new int[] { 4, 5 })
+                {
+                    double runStart = double.NaN, runEnd = double.NaN;
+                    int components = 0;
+                    for (int i = 0; i + 1 < endpoints.Count; ++i)
+                    {
+                        double a = endpoints[i], b = endpoints[i + 1];
+                        if (b <= a) continue;
+                        double mid = (a + b) * 0.5;
+                        int mask = 0, support = 0;
+                        for (int s = 0; s < Strips; ++s)
+                            if (lastDetailStripValid[s] &&
+                                lastDetailStripLower[s] <= mid &&
+                                lastDetailStripUpper[s] >= mid)
+                            {
+                                ++support;
+                                mask |= 1 << s;
+                            }
+                        if (support >= required)
+                        {
+                            if (double.IsNaN(runStart)) runStart = a;
+                            runEnd = b;
+                        }
+                        else if (!double.IsNaN(runStart))
+                        {
+                            ++components;
+                            LogBandComponent(required, components, runStart, runEnd, truth);
+                            runStart = double.NaN;
+                        }
+                        Debug.Log("[WalkEdgeLight P0-F BandSupport] required=" + required +
+                            ", from=" + a.ToString("F9") +
+                            ", to=" + b.ToString("F9") +
+                            ", support=" + support +
+                            ", mask=0x" + mask.ToString("X2"));
+                    }
+                    if (!double.IsNaN(runStart))
+                    {
+                        ++components;
+                        LogBandComponent(required, components, runStart, runEnd, truth);
+                    }
+                    Debug.Log("[WalkEdgeLight P0-F BandDetail] required=" + required +
+                        ", components=" + components);
+                }
+            }
+            finally { sceneDefinition.Build(); Physics.SyncTransforms(); }
+        }
+
+        private static void LogBandComponent(int required, int component,
+            double lower, double upper, double truth)
+        {
+            Debug.Log("[WalkEdgeLight P0-F BandComponent] required=" + required +
+                ", component=" + component +
+                ", lower=" + lower.ToString("F9") +
+                ", upper=" + upper.ToString("F9") +
+                ", widthMm=" + ((upper - lower) * 1000).ToString("F3") +
+                ", midpointErrorMm=" + (((lower + upper) * 0.5 - truth) * 1000).ToString("F3") +
+                ", truthCovered=" + ContainsWithTolerance(lower, upper, truth));
+        }
+
         // P0-F-24: coherent bands spanning four neighboring strips.
         // Diagnostic only. No candidate modifies the production estimator.
         [ContextMenu("Run P0-F Correlated Band Stress")]
