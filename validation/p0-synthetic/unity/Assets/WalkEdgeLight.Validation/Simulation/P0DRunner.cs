@@ -426,6 +426,109 @@ namespace WalkEdgeLight.Validation.UnitySimulation
             return bestWidth >= 0;
         }
 
+        // P0-F-21: compare upper-bound disagreement without modifying estimation.
+        [ContextMenu("Run P0-F Upper Disagreement Diagnostic")]
+        public void RunUpperDisagreementDiagnostic()
+        {
+            if (sceneDefinition == null || sensorCamera == null)
+                throw new InvalidOperationException("P0-F references missing.");
+            int[] sizes = { 4, 8, 16 };
+            int[] counts = { 4, 12, 24 };
+            double[] magnitudes = { 0.02, 0.05, 0.10 };
+            float[] offsets = { 0f, 0.010f, 0.025f };
+            int[] seeds = { 20261009, 20261039, 20261049 };
+            double[] gapThresholdMm = { 2, 3, 4, 5 };
+            try
+            {
+                foreach (int size in sizes)
+                    foreach (int count in counts)
+                        foreach (double magnitude in magnitudes)
+                        {
+                            int[] flagged = new int[4], falseFlagged = new int[4],
+                                missed = new int[4];
+                            int casesWithFive = 0, badUpperCases = 0;
+                            for (int si = 0; si < seeds.Length; ++si)
+                                for (int k = 0; k < offsets.Length; ++k)
+                                {
+                                    int seed = seeds[si] + k;
+                                    RunInternal(false, offsets[k], false, 320, 240,
+                                        false, 0, 20261009, 0, 20261009,
+                                        0, 20261009, magnitude, false,
+                                        size, size, count, seed, true, 0);
+                                    double truth = sceneDefinition.EdgeZMetres + offsets[k];
+                                    int valid = 0;
+                                    double[] upper = new double[Strips];
+                                    for (int s = 0; s < Strips; ++s)
+                                        if (lastDetailStripValid[s])
+                                            upper[valid++] = lastDetailStripUpper[s];
+                                    if (valid < 5) continue;
+                                    ++casesWithFive;
+                                    Array.Sort(upper, 0, valid);
+                                    double median = valid % 2 == 1 ? upper[valid / 2] :
+                                        (upper[valid / 2 - 1] + upper[valid / 2]) * 0.5;
+                                    bool anyBadUpper = false;
+                                    for (int s = 0; s < Strips; ++s)
+                                        if (lastDetailStripValid[s] &&
+                                            lastDetailStripUpper[s] < truth - 1e-8)
+                                            anyBadUpper = true;
+                                    if (anyBadUpper) ++badUpperCases;
+                                    for (int t = 0; t < gapThresholdMm.Length; ++t)
+                                    {
+                                        bool anyFlag = false, anyFalse = false;
+                                        bool detectedBad = false;
+                                        for (int s = 0; s < Strips; ++s)
+                                        {
+                                            if (!lastDetailStripValid[s]) continue;
+                                            double gap = (lastDetailStripProjected[s] -
+                                                lastDetailStripFar2[s]) * 1000.0;
+                                            double disagreement = (median -
+                                                lastDetailStripUpper[s]) * 1000.0;
+                                            bool flag = gap > gapThresholdMm[t] &&
+                                                disagreement > gapThresholdMm[t];
+                                            if (!flag) continue;
+                                            anyFlag = true;
+                                            if (lastDetailStripUpper[s] < truth - 1e-8)
+                                                detectedBad = true;
+                                            else anyFalse = true;
+                                        }
+                                        if (anyFlag) ++flagged[t];
+                                        if (anyFalse) ++falseFlagged[t];
+                                        if (anyBadUpper && !detectedBad) ++missed[t];
+                                    }
+                                    if (size == 16 && count == 12 && magnitude == 0.10 &&
+                                        seed == 20261049 && k == 0)
+                                    {
+                                        Debug.Log("[WalkEdgeLight P0-F UpperDetail] valid=" + valid +
+                                            ", medianUpper=" + median.ToString("F9") +
+                                            ", truth=" + truth.ToString("F9"));
+                                        for (int s = 0; s < Strips; ++s)
+                                            if (lastDetailStripValid[s])
+                                                Debug.Log("[WalkEdgeLight P0-F UpperDetail] strip=" + s +
+                                                    ", upper=" + lastDetailStripUpper[s].ToString("F9") +
+                                                    ", gapMm=" + ((lastDetailStripProjected[s] -
+                                                        lastDetailStripFar2[s]) * 1000).ToString("F3") +
+                                                    ", disagreementMm=" + ((median -
+                                                        lastDetailStripUpper[s]) * 1000).ToString("F3"));
+                                    }
+                                }
+                            Debug.Log("[WalkEdgeLight P0-F Upper] size=" + size +
+                                ", patches=" + count +
+                                ", magnitudeMm=" + (magnitude * 1000).ToString("F0") +
+                                ", validAtLeast5=" + casesWithFive + "/9" +
+                                ", badUpperCases=" + badUpperCases + "/9");
+                            for (int t = 0; t < gapThresholdMm.Length; ++t)
+                                Debug.Log("[WalkEdgeLight P0-F UpperThreshold] size=" + size +
+                                    ", patches=" + count +
+                                    ", magnitudeMm=" + (magnitude * 1000).ToString("F0") +
+                                    ", thresholdMm=" + gapThresholdMm[t].ToString("F0") +
+                                    ", flaggedCases=" + flagged[t] +
+                                    ", falseFlagCases=" + falseFlagged[t] +
+                                    ", missedBadCases=" + missed[t]);
+                        }
+            }
+            finally { sceneDefinition.Build(); Physics.SyncTransforms(); }
+        }
+
         // P0-F-20: reproduce the single observed 5/8 containment failure.
         // All values below are diagnostic-only; no ground truth is used in estimation.
         [ContextMenu("Run P0-F Stress Failure Detail")]
