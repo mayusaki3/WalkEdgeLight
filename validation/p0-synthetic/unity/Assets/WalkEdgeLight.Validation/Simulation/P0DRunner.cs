@@ -426,6 +426,161 @@ namespace WalkEdgeLight.Validation.UnitySimulation
             return bestWidth >= 0;
         }
 
+        // P0-F-22: compare candidate responses to a suspect far-side quantile.
+        // Diagnostic only. No candidate modifies the production estimator.
+        [ContextMenu("Run P0-F Upper Recovery Diagnostic")]
+        public void RunUpperRecoveryDiagnostic()
+        {
+            if (sceneDefinition == null || sensorCamera == null)
+                throw new InvalidOperationException("P0-F references missing.");
+            int[] sizes = { 4, 8, 16 };
+            int[] counts = { 4, 12, 24 };
+            double[] magnitudes = { 0.02, 0.05, 0.10 };
+            float[] offsets = { 0f, 0.010f, 0.025f };
+            int[] seeds = { 20261009, 20261039, 20261049 };
+            string[] names = { "baseline5", "exclude4", "rejectBelow5", "projectedReplace5" };
+            int[] bounded = new int[4], covered = new int[4], wrong = new int[4],
+                flaggedCases = new int[4], componentCases = new int[4];
+            double[] widths = new double[4], maxErrors = new double[4];
+            int cases = 0;
+            try
+            {
+                foreach (int size in sizes)
+                    foreach (int count in counts)
+                        foreach (double magnitude in magnitudes)
+                            for (int si = 0; si < seeds.Length; ++si)
+                                for (int k = 0; k < offsets.Length; ++k)
+                                {
+                                    RunInternal(false, offsets[k], false, 320, 240,
+                                        false, 0, 20261009, 0, 20261009,
+                                        0, 20261009, magnitude, false,
+                                        size, size, count, seeds[si] + k, true, 0);
+                                    ++cases;
+                                    double truth = sceneDefinition.EdgeZMetres + offsets[k];
+                                    double[] upper = new double[Strips];
+                                    int valid = 0;
+                                    for (int s = 0; s < Strips; ++s)
+                                        if (lastDetailStripValid[s])
+                                            upper[valid++] = lastDetailStripUpper[s];
+                                    Array.Sort(upper, 0, valid);
+                                    double median = valid == 0 ? double.NaN :
+                                        valid % 2 == 1 ? upper[valid / 2] :
+                                        (upper[valid / 2 - 1] + upper[valid / 2]) * 0.5;
+                                    bool[] suspect = new bool[Strips];
+                                    int suspectCount = 0;
+                                    for (int s = 0; s < Strips; ++s)
+                                    {
+                                        if (!lastDetailStripValid[s]) continue;
+                                        double gapMm = (lastDetailStripProjected[s] -
+                                            lastDetailStripFar2[s]) * 1000;
+                                        double disagreementMm = (median -
+                                            lastDetailStripUpper[s]) * 1000;
+                                        suspect[s] = gapMm > 4 && disagreementMm > 4;
+                                        if (suspect[s]) ++suspectCount;
+                                    }
+                                    for (int mode = 0; mode < names.Length; ++mode)
+                                    {
+                                        if (suspectCount > 0) ++flaggedCases[mode];
+                                        bool[] active = new bool[Strips];
+                                        double[] candidateUpper = new double[Strips];
+                                        int activeCount = 0;
+                                        for (int s = 0; s < Strips; ++s)
+                                        {
+                                            bool keep = lastDetailStripValid[s] &&
+                                                !(suspect[s] && (mode == 1 || mode == 2));
+                                            active[s] = keep;
+                                            if (keep) ++activeCount;
+                                            candidateUpper[s] = mode == 3 && suspect[s] ?
+                                                lastDetailStripProjected[s] : lastDetailStripUpper[s];
+                                        }
+                                        int required = mode == 1 ? 4 : 5;
+                                        if (mode == 2 && activeCount < 5) continue;
+                                        if (activeCount < required) continue;
+                                        var endpoints = new List<double>();
+                                        for (int s = 0; s < Strips; ++s)
+                                            if (active[s])
+                                            {
+                                                endpoints.Add(lastDetailStripLower[s]);
+                                                endpoints.Add(candidateUpper[s]);
+                                            }
+                                        endpoints.Sort();
+                                        double bestWidth = -1, lo = double.NaN, hi = double.NaN;
+                                        double runStart = double.NaN, runEnd = double.NaN;
+                                        int components = 0;
+                                        for (int i = 0; i + 1 < endpoints.Count; ++i)
+                                        {
+                                            double a = endpoints[i], b = endpoints[i + 1];
+                                            if (b <= a) continue;
+                                            double mid = (a + b) * 0.5;
+                                            int support = 0;
+                                            for (int s = 0; s < Strips; ++s)
+                                                if (active[s] && lastDetailStripLower[s] <= mid &&
+                                                    candidateUpper[s] >= mid) ++support;
+                                            if (support >= required)
+                                            {
+                                                if (double.IsNaN(runStart)) runStart = a;
+                                                runEnd = b;
+                                            }
+                                            else if (!double.IsNaN(runStart))
+                                            {
+                                                ++components;
+                                                if (runEnd - runStart > bestWidth)
+                                                {
+                                                    bestWidth = runEnd - runStart;
+                                                    lo = runStart;
+                                                    hi = runEnd;
+                                                }
+                                                runStart = double.NaN;
+                                            }
+                                        }
+                                        if (!double.IsNaN(runStart))
+                                        {
+                                            ++components;
+                                            if (runEnd - runStart > bestWidth)
+                                            {
+                                                bestWidth = runEnd - runStart;
+                                                lo = runStart;
+                                                hi = runEnd;
+                                            }
+                                        }
+                                        if (components > 1) ++componentCases[mode];
+                                        if (bestWidth < 0) continue;
+                                        ++bounded[mode];
+                                        widths[mode] += (hi - lo) * 1000;
+                                        double error = Math.Abs((lo + hi) * 0.5 - truth) * 1000;
+                                        maxErrors[mode] = Math.Max(maxErrors[mode], error);
+                                        bool contains = ContainsWithTolerance(lo, hi, truth);
+                                        if (contains) ++covered[mode];
+                                        else
+                                        {
+                                            ++wrong[mode];
+                                            Debug.Log("[WalkEdgeLight P0-F RecoveryFail] mode=" +
+                                                names[mode] + ", size=" + size + ", patches=" +
+                                                count + ", magnitudeMm=" + (magnitude * 1000).ToString("F0") +
+                                                ", seed=" + (seeds[si] + k) +
+                                                ", offset=" + offsets[k].ToString("F3") +
+                                                ", suspect=" + suspectCount +
+                                                ", lower=" + lo.ToString("F9") +
+                                                ", upper=" + hi.ToString("F9") +
+                                                ", truth=" + truth.ToString("F9"));
+                                        }
+                                    }
+                                }
+                for (int mode = 0; mode < names.Length; ++mode)
+                    Debug.Log("[WalkEdgeLight P0-F Recovery] mode=" + names[mode] +
+                        ", cases=" + cases +
+                        ", flagged=" + flaggedCases[mode] +
+                        ", bounded=" + bounded[mode] + "/" + cases +
+                        ", coverage=" + covered[mode] + "/" + cases +
+                        ", wrongBounded=" + wrong[mode] +
+                        ", multiComponent=" + componentCases[mode] +
+                        ", meanWidthMm=" + (bounded[mode] > 0 ?
+                            (widths[mode] / bounded[mode]).ToString("F3") : "N/A") +
+                        ", maxMidpointErrorMm=" + maxErrors[mode].ToString("F3"));
+            }
+            finally { sceneDefinition.Build(); Physics.SyncTransforms(); }
+        }
+
         // P0-F-21: compare upper-bound disagreement without modifying estimation.
         [ContextMenu("Run P0-F Upper Disagreement Diagnostic")]
         public void RunUpperDisagreementDiagnostic()
