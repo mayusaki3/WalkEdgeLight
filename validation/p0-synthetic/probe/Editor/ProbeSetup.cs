@@ -334,6 +334,16 @@ namespace WalkEdgeLight.Validation.Editor
             runner.RunCorrelatedBandFailureDetail();
         }
 
+        [MenuItem("WalkEdgeLight/Probe/Run P0-F Repeatability Diagnostic")]
+        internal static void RunP0FRepeatabilityDiagnostic()
+        {
+            var root = GameObject.Find(RootName);
+            Require(root != null, "Run Setup P0-A first");
+            var runner = root.GetComponent<P0DRunner>();
+            Require(runner != null, "P0DRunner missing");
+            runner.RunCorrelatedBandRepeatability();
+        }
+
         [MenuItem("WalkEdgeLight/Probe/Run P0-F Correlated Band Stress")]
         internal static void RunP0FCorrelatedBandStress()
         {
