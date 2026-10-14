@@ -426,6 +426,62 @@ namespace WalkEdgeLight.Validation.UnitySimulation
             return bestWidth >= 0;
         }
 
+        // P0-F-20: reproduce the single observed 5/8 containment failure.
+        // All values below are diagnostic-only; no ground truth is used in estimation.
+        [ContextMenu("Run P0-F Stress Failure Detail")]
+        public void RunStressFailureDetail()
+        {
+            if (sceneDefinition == null || sensorCamera == null)
+                throw new InvalidOperationException("P0-F references missing.");
+            try
+            {
+                RunInternal(false, 0f, false, 320, 240,
+                    false, 0, 20261009, 0, 20261009,
+                    0, 20261009, 0.10, false,
+                    16, 16, 12, 20261049, true, 0);
+                double truth = sceneDefinition.EdgeZMetres;
+                Debug.Log("[WalkEdgeLight P0-F StressDetail] case=size16 patches12 magnitude100mm seed20261049 offset0" +
+                    ", truth=" + truth.ToString("F9") +
+                    ", changed=" + lastOutlierCount +
+                    ", candidates=" + lastOutlierCandidates +
+                    ", validStrips=" + lastQuorumValidStrips);
+                for (int s = 0; s < Strips; ++s)
+                    Debug.Log("[WalkEdgeLight P0-F StressDetail] strip=" + s +
+                        ", valid=" + lastDetailStripValid[s] +
+                        ", near95=" + lastDetailStripNear95[s].ToString("F9") +
+                        ", far2=" + lastDetailStripFar2[s].ToString("F9") +
+                        ", projectedUpper=" + lastDetailStripProjected[s].ToString("F9") +
+                        ", lower=" + lastDetailStripLower[s].ToString("F9") +
+                        ", upper=" + lastDetailStripUpper[s].ToString("F9"));
+                for (int required = 8; required >= 5; --required)
+                {
+                    double lower, upper;
+                    int components;
+                    bool bounded = TrySupportedInterval(required, out lower, out upper, out components);
+                    int lowerSupport = 0, upperSupport = 0;
+                    if (bounded)
+                        for (int s = 0; s < Strips; ++s)
+                        {
+                            if (!lastDetailStripValid[s]) continue;
+                            if (lastDetailStripLower[s] <= lower + 1e-10 &&
+                                lastDetailStripUpper[s] >= lower) ++lowerSupport;
+                            if (lastDetailStripLower[s] <= upper &&
+                                lastDetailStripUpper[s] >= upper - 1e-10) ++upperSupport;
+                        }
+                    Debug.Log("[WalkEdgeLight P0-F StressDetail] required=" + required +
+                        "/8, bounded=" + bounded +
+                        ", components=" + components +
+                        ", lower=" + lower.ToString("F9") +
+                        ", upper=" + upper.ToString("F9") +
+                        ", widthMm=" + (bounded ? ((upper - lower) * 1000).ToString("F3") : "N/A") +
+                        ", lowerSupport=" + lowerSupport +
+                        ", upperSupport=" + upperSupport +
+                        ", truthCovered=" + (bounded && ContainsWithTolerance(lower, upper, truth)));
+                }
+            }
+            finally { sceneDefinition.Build(); Physics.SyncTransforms(); }
+        }
+
         // P0-F-19: strength/density sweep; diagnostic-only, never changes production bounds.
         [ContextMenu("Run P0-F Cluster Stress Diagnostic")]
         public void RunClusterStressDiagnostic()
