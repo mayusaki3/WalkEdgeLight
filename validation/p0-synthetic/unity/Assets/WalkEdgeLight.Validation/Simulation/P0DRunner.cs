@@ -746,6 +746,94 @@ namespace WalkEdgeLight.Validation.UnitySimulation
             finally { sceneDefinition.Build(); Physics.SyncTransforms(); }
         }
 
+        // P0-F-26: compare isolated and sequence-dependent reconstruction.
+        public void RunCorrelatedBandSequenceDiagnostic()
+        {
+            if (sceneDefinition == null || sensorCamera == null)
+                throw new InvalidOperationException("P0-F references missing.");
+            try
+            {
+                LogBandSequenceCase("isolated", 0.025f, 20261051, true);
+                int runs = 0;
+                int[] sizes = { 16, 32, 64 };
+                double[] magnitudes = { 0.02, 0.05, 0.10 };
+                float[] offsets = { 0f, 0.010f, 0.025f };
+                int[] seeds = { 20261009, 20261039, 20261049 };
+                for (int placement = 4; placement <= 5; ++placement)
+                    foreach (int size in sizes)
+                        foreach (double magnitude in magnitudes)
+                            for (int si = 0; si < seeds.Length; ++si)
+                                for (int k = 0; k < offsets.Length; ++k)
+                                {
+                                    // Exactly the P0-F-24 ordering through the failure case.
+                                    RunInternal(false, offsets[k], false, 320, 240,
+                                        false, 0, 20261009, 0, 20261009,
+                                        0, 20261009, magnitude, false,
+                                        160, size, 1, seeds[si] + k, true, placement);
+                                    ++runs;
+                                    if (placement == 5 && size == 32 &&
+                                        magnitude == 0.02 && si == 2 && k == 2)
+                                    {
+                                        LogBandSequenceState("sequence", runs, offsets[k]);
+                                        LogBandSequenceCase("immediateRepeat", offsets[k],
+                                            seeds[si] + k, true);
+                                        sceneDefinition.Build();
+                                        Physics.SyncTransforms();
+                                        LogBandSequenceCase("resetThenRepeat", offsets[k],
+                                            seeds[si] + k, true);
+                                        Debug.Log("[WalkEdgeLight P0-F Sequence] completedRuns=" + runs);
+                                        return;
+                                    }
+                                }
+            }
+            finally { sceneDefinition.Build(); Physics.SyncTransforms(); }
+        }
+
+        private void LogBandSequenceCase(string label, float offset, int seed, bool run)
+        {
+            if (run)
+                RunInternal(false, offset, false, 320, 240,
+                    false, 0, 20261009, 0, 20261009,
+                    0, 20261009, 0.02, false,
+                    160, 32, 1, seed, true, 5);
+            LogBandSequenceState(label, 0, offset);
+        }
+
+        private void LogBandSequenceState(string label, int runs, float offset)
+        {
+            int valid = 0;
+            for (int s = 0; s < Strips; ++s)
+                if (lastDetailStripValid[s]) ++valid;
+            Debug.Log("[WalkEdgeLight P0-F Sequence] phase=" + label +
+                ", runs=" + runs +
+                ", edgeBase=" + sceneDefinition.EdgeZMetres.ToString("F9") +
+                ", offset=" + offset.ToString("F9") +
+                ", changed=" + lastOutlierCount +
+                ", candidates=" + lastOutlierCandidates +
+                ", valid=" + valid);
+            for (int s = 0; s < Strips; ++s)
+                Debug.Log("[WalkEdgeLight P0-F SequenceStrip] phase=" + label +
+                    ", strip=" + s +
+                    ", valid=" + lastDetailStripValid[s] +
+                    ", near95=" + lastDetailStripNear95[s].ToString("F9") +
+                    ", far2=" + lastDetailStripFar2[s].ToString("F9") +
+                    ", projected=" + lastDetailStripProjected[s].ToString("F9") +
+                    ", lower=" + lastDetailStripLower[s].ToString("F9") +
+                    ", upper=" + lastDetailStripUpper[s].ToString("F9"));
+            foreach (int required in new int[] { 4, 5 })
+            {
+                double lo, hi;
+                int components;
+                bool bounded = TrySupportedInterval(required, out lo, out hi, out components);
+                Debug.Log("[WalkEdgeLight P0-F SequenceSupport] phase=" + label +
+                    ", required=" + required +
+                    ", bounded=" + bounded +
+                    ", components=" + components +
+                    ", lower=" + lo.ToString("F9") +
+                    ", upper=" + hi.ToString("F9"));
+            }
+        }
+
         // P0-F-25: reproduce the correlated four-strip false positive.
         // Diagnostic only; no production estimator changes.
         public void RunCorrelatedBandFailureDetail()
