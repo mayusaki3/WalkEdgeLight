@@ -1047,6 +1047,46 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                                             }
                                         }
                                         if (components > 1) ++componentCases[mode];
+                                        // P0-F-27: compare the independent stress aggregator
+                                        // against the reference implementation on identical strip data.
+                                        if (mode == 4)
+                                        {
+                                            double refLower, refUpper;
+                                            int refComponents;
+                                            bool refBounded = TrySupportedInterval(4,
+                                                out refLower, out refUpper, out refComponents);
+                                            bool stressBounded = bestWidth >= 0;
+                                            bool mismatch = stressBounded != refBounded ||
+                                                components != refComponents ||
+                                                (stressBounded &&
+                                                 (Math.Abs(lo - refLower) > 1e-9 ||
+                                                  Math.Abs(hi - refUpper) > 1e-9));
+                                            if (mismatch || (placement == 5 && size == 32 &&
+                                                count == 1 && magnitude == 0.02 &&
+                                                seeds[si] + k == 20261051 && offsets[k] == 0.025f))
+                                            {
+                                                Debug.Log("[WalkEdgeLight P0-F AggregatorCompare] placement=" +
+                                                    placement + ", size=" + size +
+                                                    ", magnitudeMm=" + (magnitude * 1000).ToString("F0") +
+                                                    ", seed=" + (seeds[si] + k) +
+                                                    ", offset=" + offsets[k].ToString("F3") +
+                                                    ", valid=" + activeCount +
+                                                    ", mismatch=" + mismatch +
+                                                    ", stressBounded=" + stressBounded +
+                                                    ", stressComponents=" + components +
+                                                    ", stressLower=" + lo.ToString("F9") +
+                                                    ", stressUpper=" + hi.ToString("F9") +
+                                                    ", refBounded=" + refBounded +
+                                                    ", refComponents=" + refComponents +
+                                                    ", refLower=" + refLower.ToString("F9") +
+                                                    ", refUpper=" + refUpper.ToString("F9"));
+                                                for (int s = 0; s < Strips; ++s)
+                                                    Debug.Log("[WalkEdgeLight P0-F AggregatorStrip] strip=" +
+                                                        s + ", valid=" + lastDetailStripValid[s] +
+                                                        ", lower=" + lastDetailStripLower[s].ToString("F9") +
+                                                        ", upper=" + lastDetailStripUpper[s].ToString("F9"));
+                                            }
+                                        }
                                         if (bestWidth < 0) continue;
                                         ++bounded[mode];
                                         widths[mode] += (hi - lo) * 1000;
