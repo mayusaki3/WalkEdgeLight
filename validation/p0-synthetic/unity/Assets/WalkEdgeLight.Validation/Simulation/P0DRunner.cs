@@ -33,6 +33,32 @@ namespace WalkEdgeLight.Validation.UnitySimulation
         private double lastQuorumLower = double.NaN;
         private double lastQuorumUpper = double.NaN;
         private double lastQuorumMidpointSpread = double.NaN;
+        private ulong lastRawDepthHash;
+        private ulong lastInjectedDepthHash;
+        private readonly List<string> p0f28FirstPass = new List<string>();
+        private bool p0f28Capture;
+        private int p0f28Pass;
+        private int p0f28Differences;
+
+        private static ulong HashDepth(GeneratedDepth depth)
+        {
+            // FNV-1a over the exact IEEE-754 depth bits and validity flags.
+            const ulong prime = 1099511628211UL;
+            ulong hash = 14695981039346656037UL;
+            for (int i = 0; i < depth.DepthMetres.Length; ++i)
+            {
+                byte[] bytes = BitConverter.GetBytes(depth.DepthMetres[i]);
+                for (int b = 0; b < bytes.Length; ++b)
+                {
+                    hash ^= bytes[b];
+                    hash *= prime;
+                }
+                hash ^= depth.Valid[i] ? (byte)1 : (byte)0;
+                hash *= prime;
+            }
+            return hash;
+        }
+
         private readonly bool[] lastDetailStripValid = new bool[Strips];
         private readonly double[] lastDetailStripNear95 = new double[Strips];
         private readonly double[] lastDetailStripFar2 = new double[Strips];
@@ -464,6 +490,46 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                                         0, 20261009, magnitude, false,
                                         size, size, count, seeds[si] + k, true, 0);
                                     ++cases;
+                                    if (p0f28Capture)
+                                    {
+                                        ulong stripHash = 14695981039346656037UL;
+                                        for (int s = 0; s < Strips; ++s)
+                                        {
+                                            string strip = lastDetailStripValid[s] + ":" +
+                                                lastDetailStripLower[s].ToString("R",
+                                                    System.Globalization.CultureInfo.InvariantCulture) + ":" +
+                                                lastDetailStripUpper[s].ToString("R",
+                                                    System.Globalization.CultureInfo.InvariantCulture);
+                                            foreach (char ch in strip)
+                                            {
+                                                stripHash ^= ch;
+                                                stripHash *= 1099511628211UL;
+                                            }
+                                        }
+                                        string signature = lastRawDepthHash.ToString("X16") + "/" +
+                                            lastInjectedDepthHash.ToString("X16") + "/" +
+                                            stripHash.ToString("X16");
+                                        string key = "placement=" + placement + " size=" + size +
+                                            " magnitudeMm=" + (magnitude * 1000).ToString("F0") +
+                                            " seed=" + (seeds[si] + k) +
+                                            " offset=" + offsets[k].ToString("F3");
+                                        if (p0f28Pass == 1) p0f28FirstPass.Add(signature);
+                                        else if (cases > p0f28FirstPass.Count ||
+                                            p0f28FirstPass[cases - 1] != signature)
+                                        {
+                                            ++p0f28Differences;
+                                            Debug.LogError("[WalkEdgeLight P0-F RepeatMismatch] " +
+                                                key + " pass1=" +
+                                                (cases <= p0f28FirstPass.Count ?
+                                                    p0f28FirstPass[cases - 1] : "MISSING") +
+                                                " pass2=" + signature);
+                                        }
+                                        if (placement == 5 && size == 32 &&
+                                            magnitude == 0.02 && seeds[si] + k == 20261051 &&
+                                            offsets[k] == 0.025f)
+                                            Debug.Log("[WalkEdgeLight P0-F RepeatTarget] pass=" +
+                                                p0f28Pass + " " + key + " hash=" + signature);
+                                    }
                                     double truth = sceneDefinition.EdgeZMetres + offsets[k];
                                     double[] upper = new double[Strips];
                                     int valid = 0;
@@ -930,6 +996,32 @@ namespace WalkEdgeLight.Validation.UnitySimulation
         // P0-F-24: coherent bands spanning four neighboring strips.
         // Diagnostic only. No candidate modifies the production estimator.
         [ContextMenu("Run P0-F Correlated Band Stress")]
+        // P0-F-28: repeat the complete stress suite and compare all 243 inputs.
+        public void RunCorrelatedBandRepeatability()
+        {
+            p0f28FirstPass.Clear();
+            p0f28Differences = 0;
+            p0f28Capture = true;
+            try
+            {
+                for (int pass = 1; pass <= 2; ++pass)
+                {
+                    p0f28Pass = pass;
+                    RunCorrelatedBandStress();
+                    Debug.Log("[WalkEdgeLight P0-F RepeatPass] pass=" + pass +
+                        " cases=" + p0f28FirstPass.Count +
+                        " mismatches=" + p0f28Differences);
+                }
+                Debug.Log("[WalkEdgeLight P0-F RepeatSummary] compared=" +
+                    p0f28FirstPass.Count + " mismatches=" + p0f28Differences);
+            }
+            finally
+            {
+                p0f28Capture = false;
+                p0f28Pass = 0;
+            }
+        }
+
         public void RunCorrelatedBandStress()
         {
             if (sceneDefinition == null || sensorCamera == null)
@@ -2541,6 +2633,7 @@ namespace WalkEdgeLight.Validation.UnitySimulation
             else sceneDefinition.Build();
             Physics.SyncTransforms();
             var depth = new CpuRaycastPerfectDepthGenerator().Generate(sensorCamera, imageWidth, imageHeight, 10f);
+            if (p0f28Capture) lastRawDepthHash = HashDepth(depth);
             if (gaussianSigmaMetres > 0)
                 depth = AddGaussianDepthNoise(depth, gaussianSigmaMetres, gaussianSeed);
             foreach (bool validPixel in depth.Valid)
@@ -2566,6 +2659,7 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                 lastOutlierCandidates = clusterCandidates;
                 lastOutlierCount = clusterChanged;
             }
+            if (p0f28Capture) lastInjectedDepthHash = HashDepth(depth);
             var frame = P0ASensorFrameAdapter.Create(
                 0, Time.realtimeSinceStartupAsDouble, sensorCamera, depth);
             var cells = new List<NumericsVector3>[Strips, Bins];
