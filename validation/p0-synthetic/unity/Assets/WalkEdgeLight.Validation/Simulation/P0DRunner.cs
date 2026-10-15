@@ -490,46 +490,6 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                                         0, 20261009, magnitude, false,
                                         size, size, count, seeds[si] + k, true, 0);
                                     ++cases;
-                                    if (p0f28Capture)
-                                    {
-                                        ulong stripHash = 14695981039346656037UL;
-                                        for (int s = 0; s < Strips; ++s)
-                                        {
-                                            string strip = lastDetailStripValid[s] + ":" +
-                                                lastDetailStripLower[s].ToString("R",
-                                                    System.Globalization.CultureInfo.InvariantCulture) + ":" +
-                                                lastDetailStripUpper[s].ToString("R",
-                                                    System.Globalization.CultureInfo.InvariantCulture);
-                                            foreach (char ch in strip)
-                                            {
-                                                stripHash ^= ch;
-                                                stripHash *= 1099511628211UL;
-                                            }
-                                        }
-                                        string signature = lastRawDepthHash.ToString("X16") + "/" +
-                                            lastInjectedDepthHash.ToString("X16") + "/" +
-                                            stripHash.ToString("X16");
-                                        string key = "placement=" + placement + " size=" + size +
-                                            " magnitudeMm=" + (magnitude * 1000).ToString("F0") +
-                                            " seed=" + (seeds[si] + k) +
-                                            " offset=" + offsets[k].ToString("F3");
-                                        if (p0f28Pass == 1) p0f28FirstPass.Add(signature);
-                                        else if (cases > p0f28FirstPass.Count ||
-                                            p0f28FirstPass[cases - 1] != signature)
-                                        {
-                                            ++p0f28Differences;
-                                            Debug.LogError("[WalkEdgeLight P0-F RepeatMismatch] " +
-                                                key + " pass1=" +
-                                                (cases <= p0f28FirstPass.Count ?
-                                                    p0f28FirstPass[cases - 1] : "MISSING") +
-                                                " pass2=" + signature);
-                                        }
-                                        if (placement == 5 && size == 32 &&
-                                            magnitude == 0.02 && seeds[si] + k == 20261051 &&
-                                            offsets[k] == 0.025f)
-                                            Debug.Log("[WalkEdgeLight P0-F RepeatTarget] pass=" +
-                                                p0f28Pass + " " + key + " hash=" + signature);
-                                    }
                                     double truth = sceneDefinition.EdgeZMetres + offsets[k];
                                     double[] upper = new double[Strips];
                                     int valid = 0;
@@ -1051,6 +1011,46 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                                         0, 20261009, magnitude, false,
                                         160, size, count, seeds[si] + k, true, placement);
                                     ++cases;
+                                    if (p0f28Capture)
+                                    {
+                                        ulong stripHash = 14695981039346656037UL;
+                                        for (int s = 0; s < Strips; ++s)
+                                        {
+                                            string strip = lastDetailStripValid[s] + ":" +
+                                                lastDetailStripLower[s].ToString("R",
+                                                    System.Globalization.CultureInfo.InvariantCulture) + ":" +
+                                                lastDetailStripUpper[s].ToString("R",
+                                                    System.Globalization.CultureInfo.InvariantCulture);
+                                            foreach (char ch in strip)
+                                            {
+                                                stripHash ^= ch;
+                                                stripHash *= 1099511628211UL;
+                                            }
+                                        }
+                                        string signature = lastRawDepthHash.ToString("X16") + "/" +
+                                            lastInjectedDepthHash.ToString("X16") + "/" +
+                                            stripHash.ToString("X16");
+                                        string key = "placement=" + placement + " size=" + size +
+                                            " magnitudeMm=" + (magnitude * 1000).ToString("F0") +
+                                            " seed=" + (seeds[si] + k) +
+                                            " offset=" + offsets[k].ToString("F3");
+                                        if (p0f28Pass == 1) p0f28FirstPass.Add(signature);
+                                        else if (cases > p0f28FirstPass.Count ||
+                                            p0f28FirstPass[cases - 1] != signature)
+                                        {
+                                            ++p0f28Differences;
+                                            Debug.LogError("[WalkEdgeLight P0-F RepeatMismatch] " +
+                                                key + " pass1=" +
+                                                (cases <= p0f28FirstPass.Count ?
+                                                    p0f28FirstPass[cases - 1] : "MISSING") +
+                                                " pass2=" + signature);
+                                        }
+                                        if (placement == 5 && size == 32 &&
+                                            magnitude == 0.02 && seeds[si] + k == 20261051 &&
+                                            offsets[k] == 0.025f)
+                                            Debug.Log("[WalkEdgeLight P0-F RepeatTarget] pass=" +
+                                                p0f28Pass + " " + key + " hash=" + signature);
+                                    }
                                     double truth = sceneDefinition.EdgeZMetres + offsets[k];
                                     double[] upper = new double[Strips];
                                     int valid = 0;
