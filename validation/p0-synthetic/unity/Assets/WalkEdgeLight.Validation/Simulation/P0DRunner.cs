@@ -1058,6 +1058,121 @@ namespace WalkEdgeLight.Validation.UnitySimulation
             }
         }
 
+        // P0-F-30: diagnostic only. Compare a 4-strip candidate with a
+        // spatially separate, internally consistent competing interval.
+        public void RunCorrelatedBandSpatialConsensusDiagnostic()
+        {
+            if (sceneDefinition == null || sensorCamera == null)
+                throw new InvalidOperationException("P0-F references missing.");
+            int[] sizes = { 16, 32, 64 };
+            double[] magnitudes = { 0.02, 0.05, 0.10 };
+            float[] offsets = { 0f, 0.010f, 0.025f };
+            int[] seeds = { 20261009, 20261039, 20261049 };
+            int[] placements = { 4, 5, 6 };
+            int cases = 0, bounded4 = 0, covered4 = 0, wrong4 = 0;
+            int flagged = 0, flaggedCorrect = 0, flaggedWrong = 0;
+            int accepted = 0, acceptedCovered = 0, acceptedWrong = 0;
+            int competingTwo = 0;
+            try
+            {
+                foreach (int placement in placements)
+                    foreach (int size in sizes)
+                        foreach (double magnitude in magnitudes)
+                            for (int si = 0; si < seeds.Length; ++si)
+                                for (int k = 0; k < offsets.Length; ++k)
+                                {
+                                    RunInternal(false, offsets[k], false, 320, 240,
+                                        false, 0, 20261009, 0, 20261009,
+                                        0, 20261009, magnitude, false,
+                                        160, size, 1, seeds[si] + k, true, placement);
+                                    ++cases;
+                                    double lo, hi;
+                                    int components;
+                                    if (!TrySupportedInterval(4, out lo, out hi, out components))
+                                        continue;
+                                    ++bounded4;
+                                    double truth = sceneDefinition.EdgeZMetres + offsets[k];
+                                    bool correct = ContainsWithTolerance(lo, hi, truth);
+                                    if (correct) ++covered4;
+                                    else ++wrong4;
+                                    // A competing group is a contiguous run of at least
+                                    // two valid strips whose intervals share a nonzero
+                                    // overlap and do not overlap the chosen candidate.
+                                    int bestCompetingRun = 0;
+                                    int run = 0;
+                                    double overlapLo = double.NaN, overlapHi = double.NaN;
+                                    for (int s = 0; s < Strips; ++s)
+                                    {
+                                        if (!lastDetailStripValid[s] ||
+                                            !(lastDetailStripUpper[s] < lo ||
+                                              lastDetailStripLower[s] > hi))
+                                        {
+                                            run = 0;
+                                            continue;
+                                        }
+                                        double a = lastDetailStripLower[s];
+                                        double b = lastDetailStripUpper[s];
+                                        if (run > 0)
+                                        {
+                                            a = Math.Max(a, overlapLo);
+                                            b = Math.Min(b, overlapHi);
+                                        }
+                                        if (run == 0 || b <= a)
+                                        {
+                                            run = 1;
+                                            overlapLo = lastDetailStripLower[s];
+                                            overlapHi = lastDetailStripUpper[s];
+                                        }
+                                        else
+                                        {
+                                            ++run;
+                                            overlapLo = a;
+                                            overlapHi = b;
+                                        }
+                                        bestCompetingRun = Math.Max(bestCompetingRun, run);
+                                    }
+                                    bool suspicious = bestCompetingRun >= 2;
+                                    if (suspicious)
+                                    {
+                                        ++flagged;
+                                        ++competingTwo;
+                                        if (correct) ++flaggedCorrect;
+                                        else ++flaggedWrong;
+                                        Debug.Log("[WalkEdgeLight P0-F SpatialFlag] placement=" +
+                                            placement + " size=" + size +
+                                            " magnitudeMm=" + (magnitude * 1000).ToString("F0") +
+                                            " seed=" + (seeds[si] + k) +
+                                            " offset=" + offsets[k].ToString("F3") +
+                                            " competingRun=" + bestCompetingRun +
+                                            " correct=" + correct +
+                                            " lower=" + lo.ToString("F9") +
+                                            " upper=" + hi.ToString("F9") +
+                                            " truth=" + truth.ToString("F9"));
+                                    }
+                                    else
+                                    {
+                                        ++accepted;
+                                        if (correct) ++acceptedCovered;
+                                        else ++acceptedWrong;
+                                    }
+                                }
+                Debug.Log("[WalkEdgeLight P0-F SpatialSummary] cases=" + cases +
+                    " bounded4=" + bounded4 + " coverage4=" + covered4 +
+                    " wrong4=" + wrong4 + " flagged=" + flagged +
+                    " flaggedCorrect=" + flaggedCorrect +
+                    " flaggedWrong=" + flaggedWrong +
+                    " accepted=" + accepted +
+                    " acceptedCovered=" + acceptedCovered +
+                    " acceptedWrong=" + acceptedWrong +
+                    " competingTwo=" + competingTwo);
+            }
+            finally
+            {
+                sceneDefinition.Build();
+                Physics.SyncTransforms();
+            }
+        }
+
         public void RunCorrelatedBandStress()
         {
             if (sceneDefinition == null || sensorCamera == null)
