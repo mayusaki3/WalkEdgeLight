@@ -1060,6 +1060,174 @@ namespace WalkEdgeLight.Validation.UnitySimulation
 
         // P0-F-30: diagnostic only. Compare a 4-strip candidate with a
         // spatially separate, internally consistent competing interval.
+        // P0-F-34: compare three candidate policies on the same synthetic cases.
+        // Diagnostic only; production defaults remain unchanged.
+        private bool TryReplacementFiveInterval(out double lower, out double upper)
+        {
+            lower = double.NaN;
+            upper = double.NaN;
+            double[] sorted = new double[Strips];
+            int valid = 0;
+            for (int s = 0; s < Strips; ++s)
+                if (lastDetailStripValid[s]) sorted[valid++] = lastDetailStripUpper[s];
+            if (valid < 5) return false;
+            Array.Sort(sorted, 0, valid);
+            double median = valid % 2 == 1 ? sorted[valid / 2] :
+                (sorted[valid / 2 - 1] + sorted[valid / 2]) * 0.5;
+            double[] candidateUpper = new double[Strips];
+            var endpoints = new List<double>();
+            for (int s = 0; s < Strips; ++s)
+            {
+                if (!lastDetailStripValid[s]) continue;
+                bool suspect = (lastDetailStripProjected[s] -
+                    lastDetailStripFar2[s]) * 1000 > 4 &&
+                    (median - lastDetailStripUpper[s]) * 1000 > 4;
+                candidateUpper[s] = suspect ? lastDetailStripProjected[s] :
+                    lastDetailStripUpper[s];
+                endpoints.Add(lastDetailStripLower[s]);
+                endpoints.Add(candidateUpper[s]);
+            }
+            endpoints.Sort();
+            double bestWidth = -1, start = double.NaN, end = double.NaN;
+            for (int i = 0; i + 1 < endpoints.Count; ++i)
+            {
+                double a = endpoints[i], b = endpoints[i + 1];
+                if (b <= a) continue;
+                double mid = (a + b) * 0.5;
+                int support = 0;
+                for (int s = 0; s < Strips; ++s)
+                    if (lastDetailStripValid[s] &&
+                        lastDetailStripLower[s] <= mid &&
+                        candidateUpper[s] >= mid) ++support;
+                if (support >= 5)
+                {
+                    if (double.IsNaN(start)) start = a;
+                    end = b;
+                }
+                else if (!double.IsNaN(start))
+                {
+                    if (end - start > bestWidth)
+                    {
+                        bestWidth = end - start;
+                        lower = start;
+                        upper = end;
+                    }
+                    start = double.NaN;
+                }
+            }
+            if (!double.IsNaN(start) && end - start > bestWidth)
+            {
+                lower = start;
+                upper = end;
+                bestWidth = end - start;
+            }
+            return bestWidth >= 0;
+        }
+
+        private bool HasSplitSupportCompetitor(double lo, double hi)
+        {
+            for (int left = 0; left < 2; ++left)
+            {
+                if (!lastDetailStripValid[left] ||
+                    !(lastDetailStripUpper[left] < lo ||
+                      lastDetailStripLower[left] > hi)) continue;
+                for (int right = Strips - 2; right < Strips; ++right)
+                {
+                    if (!lastDetailStripValid[right] ||
+                        !(lastDetailStripUpper[right] < lo ||
+                          lastDetailStripLower[right] > hi)) continue;
+                    if (Math.Min(lastDetailStripUpper[left],
+                            lastDetailStripUpper[right]) >
+                        Math.Max(lastDetailStripLower[left],
+                            lastDetailStripLower[right])) return true;
+                }
+            }
+            return false;
+        }
+
+        public void RunP0FPolicyComparison()
+        {
+            if (sceneDefinition == null || sensorCamera == null)
+                throw new InvalidOperationException("P0-F references missing.");
+            string[] groups = { "clustered", "spatial", "band" };
+            string[] policies = { "baseline5", "projectedReplace5", "splitGuard4" };
+            int[] seeds = { 20261009, 20261039, 20261049 };
+            float[] offsets = { 0f, 0.010f, 0.025f };
+            double[] magnitudes = { 0.02, 0.05, 0.10 };
+            for (int group = 0; group < groups.Length; ++group)
+            {
+                int[] bounded = new int[3], covered = new int[3], wrong = new int[3];
+                int[] rejected = new int[3];
+                int cases = 0;
+                try
+                {
+                    int placements = group == 0 ? 1 : group == 1 ? 4 : 3;
+                    int[] sizes = group == 2 ? new[] { 16, 32, 64 } :
+                        new[] { 4, 8, 16 };
+                    int[] counts = group == 2 ? new[] { 1 } : new[] { 4, 12, 24 };
+                    for (int placement = 0; placement < placements; ++placement)
+                        foreach (int size in sizes)
+                            foreach (int count in counts)
+                                foreach (double magnitude in magnitudes)
+                                    for (int si = 0; si < seeds.Length; ++si)
+                                        for (int k = 0; k < offsets.Length; ++k)
+                                        {
+                                            int mode = group == 2 ? placement + 4 : placement;
+                                            RunInternal(false, offsets[k], false, 320, 240,
+                                                false, 0, 20261009, 0, 20261009,
+                                                0, 20261009, magnitude, false,
+                                                group == 2 ? 160 : size, size,
+                                                count, seeds[si] + k, true, mode);
+                                            ++cases;
+                                            double truth = sceneDefinition.EdgeZMetres + offsets[k];
+                                            for (int policy = 0; policy < policies.Length; ++policy)
+                                            {
+                                                double lo, hi;
+                                                bool ok = policy == 0 ?
+                                                    TrySupportedInterval(5, out lo, out hi) :
+                                                    policy == 1 ?
+                                                    TryReplacementFiveInterval(out lo, out hi) :
+                                                    TrySupportedInterval(4, out lo, out hi);
+                                                if (!ok) continue;
+                                                if (policy == 2 && HasSplitSupportCompetitor(lo, hi))
+                                                {
+                                                    ++rejected[policy];
+                                                    continue;
+                                                }
+                                                ++bounded[policy];
+                                                if (ContainsWithTolerance(lo, hi, truth))
+                                                    ++covered[policy];
+                                                else
+                                                {
+                                                    ++wrong[policy];
+                                                    Debug.Log("[WalkEdgeLight P0-F PolicyFail] group=" +
+                                                        groups[group] + " policy=" + policies[policy] +
+                                                        " placement=" + mode + " size=" + size +
+                                                        " patches=" + count +
+                                                        " magnitudeMm=" + (magnitude * 1000).ToString("F0") +
+                                                        " seed=" + (seeds[si] + k) +
+                                                        " offset=" + offsets[k].ToString("F3") +
+                                                        " lower=" + lo.ToString("F9") +
+                                                        " upper=" + hi.ToString("F9") +
+                                                        " truth=" + truth.ToString("F9"));
+                                                }
+                                            }
+                                        }
+                    for (int policy = 0; policy < policies.Length; ++policy)
+                        Debug.Log("[WalkEdgeLight P0-F PolicySummary] group=" +
+                            groups[group] + " policy=" + policies[policy] +
+                            " cases=" + cases + " bounded=" + bounded[policy] +
+                            " covered=" + covered[policy] + " wrong=" + wrong[policy] +
+                            " rejected=" + rejected[policy]);
+                }
+                finally
+                {
+                    sceneDefinition.Build();
+                    Physics.SyncTransforms();
+                }
+            }
+        }
+
         // P0-F-33: log every incorrect 5/8 interval and all strip bounds.
         // Uses the exact P0-F-32 case matrix for direct comparison.
         public void RunFiveStripFailureDetail()
