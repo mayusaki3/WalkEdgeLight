@@ -1145,6 +1145,134 @@ namespace WalkEdgeLight.Validation.UnitySimulation
             return false;
         }
 
+        // P0-F-35: two-pass fingerprint of input and all three policy results.
+        // Compare exact bit-level depth and strip state, not rounded log strings.
+        public void RunP0FPolicyRepeatability()
+        {
+            if (sceneDefinition == null || sensorCamera == null)
+                throw new InvalidOperationException("P0-F references missing.");
+            string[] groups = { "clustered", "spatial", "band" };
+            int[] seeds = { 20261009, 20261039, 20261049 };
+            float[] offsets = { 0f, 0.010f, 0.025f };
+            double[] magnitudes = { 0.02, 0.05, 0.10 };
+            var first = new Dictionary<string, string>();
+            bool previousCapture = p0f28Capture;
+            p0f28Capture = true;
+            try
+            {
+                for (int pass = 1; pass <= 2; ++pass)
+                {
+                    int cases = 0, mismatches = 0, inputMismatches = 0;
+                    for (int group = 0; group < groups.Length; ++group)
+                    {
+                        int placements = group == 0 ? 1 : group == 1 ? 4 : 3;
+                        int[] sizes = group == 2 ? new[] { 16, 32, 64 } :
+                            new[] { 4, 8, 16 };
+                        int[] counts = group == 2 ? new[] { 1 } : new[] { 4, 12, 24 };
+                        try
+                        {
+                            for (int placement = 0; placement < placements; ++placement)
+                                foreach (int size in sizes)
+                                    foreach (int count in counts)
+                                        foreach (double magnitude in magnitudes)
+                                            for (int si = 0; si < seeds.Length; ++si)
+                                                for (int k = 0; k < offsets.Length; ++k)
+                                                {
+                                                    int mode = group == 2 ? placement + 4 : placement;
+                                                    int seed = seeds[si] + k;
+                                                    RunInternal(false, offsets[k], false, 320, 240,
+                                                        false, 0, 20261009, 0, 20261009,
+                                                        0, 20261009, magnitude, false,
+                                                        group == 2 ? 160 : size, size,
+                                                        count, seed, true, mode);
+                                                    ++cases;
+                                                    string key = groups[group] + "/" + mode + "/" +
+                                                        size + "/" + count + "/" +
+                                                        magnitude.ToString("R",
+                                                            System.Globalization.CultureInfo.InvariantCulture) +
+                                                        "/" + seed + "/" + k;
+                                                    ulong stripHash = 14695981039346656037UL;
+                                                    for (int s = 0; s < Strips; ++s)
+                                                    {
+                                                        string state = lastDetailStripValid[s] + ":" +
+                                                            lastDetailStripLower[s].ToString("R",
+                                                                System.Globalization.CultureInfo.InvariantCulture) + ":" +
+                                                            lastDetailStripUpper[s].ToString("R",
+                                                                System.Globalization.CultureInfo.InvariantCulture) + ":" +
+                                                            lastDetailStripProjected[s].ToString("R",
+                                                                System.Globalization.CultureInfo.InvariantCulture) + ":" +
+                                                            lastDetailStripFar2[s].ToString("R",
+                                                                System.Globalization.CultureInfo.InvariantCulture);
+                                                        foreach (char ch in state)
+                                                        {
+                                                            stripHash ^= ch;
+                                                            stripHash *= 1099511628211UL;
+                                                        }
+                                                    }
+                                                    double truth = sceneDefinition.EdgeZMetres + offsets[k];
+                                                    string[] results = new string[3];
+                                                    for (int policy = 0; policy < 3; ++policy)
+                                                    {
+                                                        double lo, hi;
+                                                        bool ok = policy == 0 ?
+                                                            TrySupportedInterval(5, out lo, out hi) :
+                                                            policy == 1 ?
+                                                            TryReplacementFiveInterval(out lo, out hi) :
+                                                            TrySupportedInterval(4, out lo, out hi);
+                                                        bool rejected = ok && policy == 2 &&
+                                                            HasSplitSupportCompetitor(lo, hi);
+                                                        results[policy] = !ok ? "unbounded" :
+                                                            rejected ? "rejected" :
+                                                            lo.ToString("R",
+                                                                System.Globalization.CultureInfo.InvariantCulture) +
+                                                            ":" + hi.ToString("R",
+                                                                System.Globalization.CultureInfo.InvariantCulture) +
+                                                            ":" + ContainsWithTolerance(lo, hi, truth);
+                                                    }
+                                                    string input = lastRawDepthHash.ToString("X16") + "/" +
+                                                        lastInjectedDepthHash.ToString("X16") + "/" +
+                                                        stripHash.ToString("X16");
+                                                    string fingerprint = input + "|" + string.Join("|", results);
+                                                    if (pass == 1) first.Add(key, fingerprint);
+                                                    else if (first[key] != fingerprint)
+                                                    {
+                                                        ++mismatches;
+                                                        if (!first[key].StartsWith(input + "|"))
+                                                            ++inputMismatches;
+                                                        Debug.Log("[WalkEdgeLight P0-F PolicyRepeatMismatch] key=" +
+                                                            key + " first=" + first[key] +
+                                                            " second=" + fingerprint);
+                                                    }
+                                                    if ((group == 0 && size == 16 &&
+                                                            count == 12 && magnitude == 0.10 &&
+                                                            seed == 20261049 && k == 0) ||
+                                                        (group == 0 && size == 16 &&
+                                                            count == 24 && magnitude == 0.02 &&
+                                                            seed == 20261011 && k == 2) ||
+                                                        (group == 2 && mode == 5 && size == 32 &&
+                                                            magnitude == 0.02 && seed == 20261051 && k == 2))
+                                                        Debug.Log("[WalkEdgeLight P0-F PolicyRepeatTarget] pass=" +
+                                                            pass + " key=" + key +
+                                                            " fingerprint=" + fingerprint);
+                                                }
+                        }
+                        finally
+                        {
+                            sceneDefinition.Build();
+                            Physics.SyncTransforms();
+                        }
+                    }
+                    Debug.Log("[WalkEdgeLight P0-F PolicyRepeatSummary] pass=" + pass +
+                        " cases=" + cases + " mismatches=" + mismatches +
+                        " inputMismatches=" + inputMismatches);
+                }
+            }
+            finally
+            {
+                p0f28Capture = previousCapture;
+            }
+        }
+
         public void RunP0FPolicyComparison()
         {
             if (sceneDefinition == null || sensorCamera == null)
