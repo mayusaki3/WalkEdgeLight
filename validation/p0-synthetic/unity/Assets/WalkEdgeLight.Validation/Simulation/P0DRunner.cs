@@ -957,6 +957,82 @@ namespace WalkEdgeLight.Validation.UnitySimulation
         // Diagnostic only. No candidate modifies the production estimator.
         [ContextMenu("Run P0-F Correlated Band Stress")]
         // P0-F-28: repeat the complete stress suite and compare all 243 inputs.
+        // P0-F-29: a stable, copyable cross-session record for the known failure.
+        // Run the exact case without preceding stress cases to isolate scene state.
+        public void RunCorrelatedBandCrossSessionFingerprint()
+        {
+            if (sceneDefinition == null || sensorCamera == null)
+                throw new InvalidOperationException("P0-F references missing.");
+            bool oldCapture = p0f28Capture;
+            int oldPass = p0f28Pass;
+            p0f28Capture = true;
+            p0f28Pass = 0;
+            try
+            {
+                RunInternal(false, 0.025f, false, 320, 240,
+                    false, 0, 20261009, 0, 20261009,
+                    0, 20261009, 0.02, false,
+                    160, 32, 1, 20261051, true, 5);
+                ulong stripHash = 14695981039346656037UL;
+                int validCount = 0;
+                for (int s = 0; s < Strips; ++s)
+                {
+                    if (lastDetailStripValid[s]) ++validCount;
+                    string strip = lastDetailStripValid[s] + ":" +
+                        lastDetailStripLower[s].ToString("R",
+                            System.Globalization.CultureInfo.InvariantCulture) + ":" +
+                        lastDetailStripUpper[s].ToString("R",
+                            System.Globalization.CultureInfo.InvariantCulture);
+                    foreach (char ch in strip)
+                    {
+                        stripHash ^= ch;
+                        stripHash *= 1099511628211UL;
+                    }
+                }
+                double lower4, upper4, lower5, upper5;
+                int components4, components5;
+                bool bounded4 = TrySupportedInterval(4, out lower4, out upper4,
+                    out components4);
+                bool bounded5 = TrySupportedInterval(5, out lower5, out upper5,
+                    out components5);
+                var p = sensorCamera.transform.position;
+                var q = sensorCamera.transform.rotation;
+                string sceneState = "cameraPos=" +
+                    p.x.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + "," +
+                    p.y.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + "," +
+                    p.z.ToString("R", System.Globalization.CultureInfo.InvariantCulture) +
+                    " cameraRot=" +
+                    q.x.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + "," +
+                    q.y.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + "," +
+                    q.z.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + "," +
+                    q.w.ToString("R", System.Globalization.CultureInfo.InvariantCulture);
+                Debug.Log("[WalkEdgeLight P0-F CrossSession] case=placement5_width160_height32_" +
+                    "magnitude20_seed20261051_offset0.025" +
+                    " raw=" + lastRawDepthHash.ToString("X16") +
+                    " injected=" + lastInjectedDepthHash.ToString("X16") +
+                    " strips=" + stripHash.ToString("X16") +
+                    " valid=" + validCount +
+                    " bounded4=" + bounded4 + " components4=" + components4 +
+                    " lower4=" + lower4.ToString("F9") +
+                    " upper4=" + upper4.ToString("F9") +
+                    " bounded5=" + bounded5 + " components5=" + components5 +
+                    " lower5=" + lower5.ToString("F9") +
+                    " upper5=" + upper5.ToString("F9") +
+                    " changed=" + lastOutlierCount +
+                    " candidates=" + lastOutlierCandidates + " " + sceneState);
+                for (int s = 0; s < Strips; ++s)
+                    Debug.Log("[WalkEdgeLight P0-F CrossSessionStrip] strip=" + s +
+                        " valid=" + lastDetailStripValid[s] +
+                        " lower=" + lastDetailStripLower[s].ToString("F9") +
+                        " upper=" + lastDetailStripUpper[s].ToString("F9"));
+            }
+            finally
+            {
+                p0f28Capture = oldCapture;
+                p0f28Pass = oldPass;
+            }
+        }
+
         public void RunCorrelatedBandRepeatability()
         {
             p0f28FirstPass.Clear();
