@@ -1060,6 +1060,92 @@ namespace WalkEdgeLight.Validation.UnitySimulation
 
         // P0-F-30: diagnostic only. Compare a 4-strip candidate with a
         // spatially separate, internally consistent competing interval.
+        // P0-F-33: log every incorrect 5/8 interval and all strip bounds.
+        // Uses the exact P0-F-32 case matrix for direct comparison.
+        public void RunFiveStripFailureDetail()
+        {
+            if (sceneDefinition == null || sensorCamera == null)
+                throw new InvalidOperationException("P0-F references missing.");
+            int[] sizes = { 4, 8, 16 };
+            int[] counts = { 4, 12, 24 };
+            double[] magnitudes = { 0.02, 0.05, 0.10 };
+            float[] offsets = { 0f, 0.010f, 0.025f };
+            int[] seeds = { 20261009, 20261039, 20261049 };
+            for (int group = 0; group < 2; ++group)
+            {
+                string name = group == 0 ? "clustered" : "spatial";
+                int cases = 0, bounded5 = 0, wrong5 = 0, wrongWith4 = 0;
+                try
+                {
+                    for (int placement = 0; placement < (group == 0 ? 1 : 4); ++placement)
+                        foreach (int size in sizes)
+                            foreach (int count in counts)
+                                foreach (double magnitude in magnitudes)
+                                    for (int si = 0; si < seeds.Length; ++si)
+                                        for (int k = 0; k < offsets.Length; ++k)
+                                        {
+                                            int mode = group == 0 ? 0 : placement;
+                                            RunInternal(false, offsets[k], false, 320, 240,
+                                                false, 0, 20261009, 0, 20261009,
+                                                0, 20261009, magnitude, false,
+                                                size, size, count, seeds[si] + k, true, mode);
+                                            ++cases;
+                                            double truth = sceneDefinition.EdgeZMetres + offsets[k];
+                                            double lo5, hi5;
+                                            int components5;
+                                            if (!TrySupportedInterval(5, out lo5, out hi5, out components5))
+                                                continue;
+                                            ++bounded5;
+                                            if (ContainsWithTolerance(lo5, hi5, truth)) continue;
+                                            ++wrong5;
+                                            double lo4, hi4;
+                                            int components4;
+                                            bool bounded4 = TrySupportedInterval(4, out lo4, out hi4,
+                                                out components4);
+                                            bool covered4 = bounded4 &&
+                                                ContainsWithTolerance(lo4, hi4, truth);
+                                            if (covered4) ++wrongWith4;
+                                            Debug.Log("[WalkEdgeLight P0-F FiveFail] group=" + name +
+                                                " placement=" + mode + " size=" + size +
+                                                " patches=" + count +
+                                                " magnitudeMm=" + (magnitude * 1000).ToString("F0") +
+                                                " seed=" + (seeds[si] + k) +
+                                                " offset=" + offsets[k].ToString("F3") +
+                                                " truth=" + truth.ToString("F9") +
+                                                " lower5=" + lo5.ToString("F9") +
+                                                " upper5=" + hi5.ToString("F9") +
+                                                " components5=" + components5 +
+                                                " bounded4=" + bounded4 +
+                                                " lower4=" + lo4.ToString("F9") +
+                                                " upper4=" + hi4.ToString("F9") +
+                                                " components4=" + components4 +
+                                                " covered4=" + covered4);
+                                            for (int s = 0; s < Strips; ++s)
+                                                Debug.Log("[WalkEdgeLight P0-F FiveFailStrip] group=" +
+                                                    name + " placement=" + mode +
+                                                    " size=" + size + " patches=" + count +
+                                                    " seed=" + (seeds[si] + k) +
+                                                    " offset=" + offsets[k].ToString("F3") +
+                                                    " strip=" + s +
+                                                    " valid=" + lastDetailStripValid[s] +
+                                                    " lower=" + lastDetailStripLower[s].ToString("F9") +
+                                                    " upper=" + lastDetailStripUpper[s].ToString("F9") +
+                                                    " projected=" +
+                                                    lastDetailStripProjected[s].ToString("F9"));
+                                        }
+                    Debug.Log("[WalkEdgeLight P0-F FiveFailSummary] group=" + name +
+                        " cases=" + cases + " bounded5=" + bounded5 +
+                        " wrong5=" + wrong5 +
+                        " wrong5Covered4=" + wrongWith4);
+                }
+                finally
+                {
+                    sceneDefinition.Build();
+                    Physics.SyncTransforms();
+                }
+            }
+        }
+
         // P0-F-32: diagnostic comparison across clustered and spatial stress.
         // Do not change the default estimator or treat flagged bounds as recovered.
         public void RunSplitSupportGeneralizationDiagnostic()
