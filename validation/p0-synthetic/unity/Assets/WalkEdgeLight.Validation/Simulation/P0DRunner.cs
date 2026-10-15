@@ -1060,6 +1060,123 @@ namespace WalkEdgeLight.Validation.UnitySimulation
 
         // P0-F-30: diagnostic only. Compare a 4-strip candidate with a
         // spatially separate, internally consistent competing interval.
+        // P0-F-32: diagnostic comparison across clustered and spatial stress.
+        // Do not change the default estimator or treat flagged bounds as recovered.
+        public void RunSplitSupportGeneralizationDiagnostic()
+        {
+            if (sceneDefinition == null || sensorCamera == null)
+                throw new InvalidOperationException("P0-F references missing.");
+            int[] sizes = { 4, 8, 16 };
+            int[] counts = { 4, 12, 24 };
+            double[] magnitudes = { 0.02, 0.05, 0.10 };
+            float[] offsets = { 0f, 0.010f, 0.025f };
+            int[] seeds = { 20261009, 20261039, 20261049 };
+            for (int group = 0; group < 2; ++group)
+            {
+                string name = group == 0 ? "clustered" : "spatial";
+                int cases = 0, bounded5 = 0, covered5 = 0, wrong5 = 0;
+                int bounded4 = 0, covered4 = 0, wrong4 = 0;
+                int flagged = 0, flaggedCorrect = 0, flaggedWrong = 0;
+                int accepted = 0, acceptedCovered = 0, acceptedWrong = 0;
+                try
+                {
+                    int placements = group == 0 ? 1 : 4;
+                    for (int placement = 0; placement < placements; ++placement)
+                        foreach (int size in sizes)
+                            foreach (int count in counts)
+                                foreach (double magnitude in magnitudes)
+                                    for (int si = 0; si < seeds.Length; ++si)
+                                        for (int k = 0; k < offsets.Length; ++k)
+                                        {
+                                            int mode = group == 0 ? 0 : placement;
+                                            RunInternal(false, offsets[k], false, 320, 240,
+                                                false, 0, 20261009, 0, 20261009,
+                                                0, 20261009, magnitude, false,
+                                                size, size, count, seeds[si] + k, true, mode);
+                                            ++cases;
+                                            double truth = sceneDefinition.EdgeZMetres + offsets[k];
+                                            double lo5, hi5;
+                                            int components5;
+                                            if (TrySupportedInterval(5, out lo5, out hi5, out components5))
+                                            {
+                                                ++bounded5;
+                                                if (ContainsWithTolerance(lo5, hi5, truth)) ++covered5;
+                                                else ++wrong5;
+                                            }
+                                            double lo, hi;
+                                            int components;
+                                            if (!TrySupportedInterval(4, out lo, out hi, out components))
+                                                continue;
+                                            ++bounded4;
+                                            bool correct = ContainsWithTolerance(lo, hi, truth);
+                                            if (correct) ++covered4;
+                                            else ++wrong4;
+                                            int left = -1, right = -1;
+                                            for (int s = 0; s < 2; ++s)
+                                                if (lastDetailStripValid[s] &&
+                                                    (lastDetailStripUpper[s] < lo ||
+                                                     lastDetailStripLower[s] > hi))
+                                                {
+                                                    left = s;
+                                                    break;
+                                                }
+                                            for (int s = Strips - 1; s >= Strips - 2; --s)
+                                                if (lastDetailStripValid[s] &&
+                                                    (lastDetailStripUpper[s] < lo ||
+                                                     lastDetailStripLower[s] > hi))
+                                                {
+                                                    right = s;
+                                                    break;
+                                                }
+                                            bool split = left >= 0 && right >= 0 &&
+                                                Math.Min(lastDetailStripUpper[left],
+                                                    lastDetailStripUpper[right]) >
+                                                Math.Max(lastDetailStripLower[left],
+                                                    lastDetailStripLower[right]);
+                                            if (split)
+                                            {
+                                                ++flagged;
+                                                if (correct) ++flaggedCorrect;
+                                                else ++flaggedWrong;
+                                                Debug.Log("[WalkEdgeLight P0-F GeneralizationFlag] group=" +
+                                                    name + " placement=" + mode +
+                                                    " size=" + size + " patches=" + count +
+                                                    " magnitudeMm=" + (magnitude * 1000).ToString("F0") +
+                                                    " seed=" + (seeds[si] + k) +
+                                                    " offset=" + offsets[k].ToString("F3") +
+                                                    " correct=" + correct +
+                                                    " selected=" + lo.ToString("F9") +
+                                                    ".." + hi.ToString("F9") +
+                                                    " truth=" + truth.ToString("F9"));
+                                            }
+                                            else
+                                            {
+                                                ++accepted;
+                                                if (correct) ++acceptedCovered;
+                                                else ++acceptedWrong;
+                                            }
+                                        }
+                    Debug.Log("[WalkEdgeLight P0-F GeneralizationSummary] group=" + name +
+                        " cases=" + cases +
+                        " bounded5=" + bounded5 + " coverage5=" + covered5 +
+                        " wrong5=" + wrong5 +
+                        " bounded4=" + bounded4 + " coverage4=" + covered4 +
+                        " wrong4=" + wrong4 +
+                        " flagged=" + flagged +
+                        " flaggedCorrect=" + flaggedCorrect +
+                        " flaggedWrong=" + flaggedWrong +
+                        " accepted=" + accepted +
+                        " acceptedCovered=" + acceptedCovered +
+                        " acceptedWrong=" + acceptedWrong);
+                }
+                finally
+                {
+                    sceneDefinition.Build();
+                    Physics.SyncTransforms();
+                }
+            }
+        }
+
         // P0-F-31: compare the chosen 4/8 interval with coherent but
         // non-adjacent edge strips. Diagnostic only, no production changes.
         public void RunCorrelatedBandSplitSupportDiagnostic()
