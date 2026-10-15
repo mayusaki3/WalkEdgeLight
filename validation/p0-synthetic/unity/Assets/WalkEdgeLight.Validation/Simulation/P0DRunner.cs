@@ -1060,6 +1060,110 @@ namespace WalkEdgeLight.Validation.UnitySimulation
 
         // P0-F-30: diagnostic only. Compare a 4-strip candidate with a
         // spatially separate, internally consistent competing interval.
+        // P0-F-31: compare the chosen 4/8 interval with coherent but
+        // non-adjacent edge strips. Diagnostic only, no production changes.
+        public void RunCorrelatedBandSplitSupportDiagnostic()
+        {
+            if (sceneDefinition == null || sensorCamera == null)
+                throw new InvalidOperationException("P0-F references missing.");
+            int[] sizes = { 16, 32, 64 };
+            double[] magnitudes = { 0.02, 0.05, 0.10 };
+            float[] offsets = { 0f, 0.010f, 0.025f };
+            int[] seeds = { 20261009, 20261039, 20261049 };
+            int[] placements = { 4, 5, 6 };
+            int cases = 0, bounded = 0, correctCount = 0, wrongCount = 0;
+            int flagged = 0, flaggedCorrect = 0, flaggedWrong = 0;
+            int acceptedCorrect = 0, acceptedWrong = 0;
+            try
+            {
+                foreach (int placement in placements)
+                    foreach (int size in sizes)
+                        foreach (double magnitude in magnitudes)
+                            for (int si = 0; si < seeds.Length; ++si)
+                                for (int k = 0; k < offsets.Length; ++k)
+                                {
+                                    RunInternal(false, offsets[k], false, 320, 240,
+                                        false, 0, 20261009, 0, 20261009,
+                                        0, 20261009, magnitude, false,
+                                        160, size, 1, seeds[si] + k, true, placement);
+                                    ++cases;
+                                    double lo, hi;
+                                    int components;
+                                    if (!TrySupportedInterval(4, out lo, out hi, out components))
+                                        continue;
+                                    ++bounded;
+                                    double truth = sceneDefinition.EdgeZMetres + offsets[k];
+                                    bool correct = ContainsWithTolerance(lo, hi, truth);
+                                    if (correct) ++correctCount;
+                                    else ++wrongCount;
+
+                                    // Independent support on both image edges must
+                                    // overlap each other, but not the selected interval.
+                                    int left = -1, right = -1;
+                                    for (int s = 0; s < 2; ++s)
+                                        if (lastDetailStripValid[s] &&
+                                            (lastDetailStripUpper[s] < lo ||
+                                             lastDetailStripLower[s] > hi))
+                                        {
+                                            left = s;
+                                            break;
+                                        }
+                                    for (int s = Strips - 1; s >= Strips - 2; --s)
+                                        if (lastDetailStripValid[s] &&
+                                            (lastDetailStripUpper[s] < lo ||
+                                             lastDetailStripLower[s] > hi))
+                                        {
+                                            right = s;
+                                            break;
+                                        }
+                                    double competingLo = double.NaN, competingHi = double.NaN;
+                                    bool splitSupport = false;
+                                    if (left >= 0 && right >= 0)
+                                    {
+                                        competingLo = Math.Max(lastDetailStripLower[left],
+                                            lastDetailStripLower[right]);
+                                        competingHi = Math.Min(lastDetailStripUpper[left],
+                                            lastDetailStripUpper[right]);
+                                        splitSupport = competingHi > competingLo;
+                                    }
+                                    if (splitSupport)
+                                    {
+                                        ++flagged;
+                                        if (correct) ++flaggedCorrect;
+                                        else ++flaggedWrong;
+                                        Debug.Log("[WalkEdgeLight P0-F SplitFlag] placement=" +
+                                            placement + " size=" + size +
+                                            " magnitudeMm=" + (magnitude * 1000).ToString("F0") +
+                                            " seed=" + (seeds[si] + k) +
+                                            " offset=" + offsets[k].ToString("F3") +
+                                            " correct=" + correct +
+                                            " selected=" + lo.ToString("F9") + ".." +
+                                            hi.ToString("F9") +
+                                            " edgeStrips=" + left + "," + right +
+                                            " competing=" + competingLo.ToString("F9") +
+                                            ".." + competingHi.ToString("F9") +
+                                            " truth=" + truth.ToString("F9"));
+                                    }
+                                    else if (correct) ++acceptedCorrect;
+                                    else ++acceptedWrong;
+                                }
+                Debug.Log("[WalkEdgeLight P0-F SplitSummary] cases=" + cases +
+                    " bounded4=" + bounded + " coverage4=" + correctCount +
+                    " wrong4=" + wrongCount +
+                    " flagged=" + flagged +
+                    " flaggedCorrect=" + flaggedCorrect +
+                    " flaggedWrong=" + flaggedWrong +
+                    " accepted=" + (acceptedCorrect + acceptedWrong) +
+                    " acceptedCovered=" + acceptedCorrect +
+                    " acceptedWrong=" + acceptedWrong);
+            }
+            finally
+            {
+                sceneDefinition.Build();
+                Physics.SyncTransforms();
+            }
+        }
+
         public void RunCorrelatedBandSpatialConsensusDiagnostic()
         {
             if (sceneDefinition == null || sensorCamera == null)
