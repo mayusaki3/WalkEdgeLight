@@ -1147,6 +1147,81 @@ namespace WalkEdgeLight.Validation.UnitySimulation
 
         // P0-F-35: two-pass fingerprint of input and all three policy results.
         // Compare exact bit-level depth and strip state, not rounded log strings.
+        // P0-F-38: inspect each strip's interval and contribution to all candidates.
+        // Diagnostic only; no estimator or default-policy changes.
+        public void RunP0FFailureStripDetail()
+        {
+            if (sceneDefinition == null || sensorCamera == null)
+                throw new InvalidOperationException("P0-F references missing.");
+            bool oldCapture = p0f28Capture;
+            p0f28Capture = true;
+            try
+            {
+                for (int target = 0; target < 2; ++target)
+                {
+                    sceneDefinition.Build();
+                    Physics.SyncTransforms();
+                    RunP0FOrderTarget(target, "failureDetail");
+                    double truth = sceneDefinition.EdgeZMetres +
+                        (target == 0 ? 0f : 0.025f);
+                    double[] lo = new double[3], hi = new double[3];
+                    bool[] ok = new bool[3];
+                    ok[0] = TrySupportedInterval(5, out lo[0], out hi[0]);
+                    ok[1] = TryReplacementFiveInterval(out lo[1], out hi[1]);
+                    ok[2] = TrySupportedInterval(4, out lo[2], out hi[2]);
+                    bool split = ok[2] && HasSplitSupportCompetitor(lo[2], hi[2]);
+                    int valid = 0;
+                    for (int s = 0; s < Strips; ++s)
+                        if (lastDetailStripValid[s]) ++valid;
+                    Debug.Log("[WalkEdgeLight P0-F FailureDetail] target=" + target +
+                        " truth=" + truth.ToString("F9") +
+                        " valid=" + valid +
+                        " splitGuardFlag=" + split);
+                    for (int policy = 0; policy < 3; ++policy)
+                    {
+                        Debug.Log("[WalkEdgeLight P0-F FailurePolicy] target=" + target +
+                            " policy=" + (policy == 0 ? "baseline5" :
+                                policy == 1 ? "projectedReplace5" : "splitGuard4") +
+                            " bounded=" + ok[policy] +
+                            " lower=" + (ok[policy] ? lo[policy].ToString("F9") : "NaN") +
+                            " upper=" + (ok[policy] ? hi[policy].ToString("F9") : "NaN") +
+                            " covered=" + (ok[policy] &&
+                                ContainsWithTolerance(lo[policy], hi[policy], truth)));
+                    }
+                    for (int s = 0; s < Strips; ++s)
+                    {
+                        string support = "";
+                        for (int policy = 0; policy < 3; ++policy)
+                            support += (policy == 0 ? "" : ",") +
+                                (ok[policy] && lastDetailStripValid[s] &&
+                                lastDetailStripLower[s] <= lo[policy] &&
+                                lastDetailStripUpper[s] >= hi[policy] ? "full" :
+                                ok[policy] && lastDetailStripValid[s] &&
+                                lastDetailStripLower[s] < hi[policy] &&
+                                lastDetailStripUpper[s] > lo[policy] ? "partial" : "none");
+                        Debug.Log("[WalkEdgeLight P0-F FailureStrip] target=" + target +
+                            " strip=" + s +
+                            " valid=" + lastDetailStripValid[s] +
+                            " near95=" + lastDetailStripNear95[s].ToString("F9") +
+                            " far2=" + lastDetailStripFar2[s].ToString("F9") +
+                            " projected=" + lastDetailStripProjected[s].ToString("F9") +
+                            " lower=" + lastDetailStripLower[s].ToString("F9") +
+                            " upper=" + lastDetailStripUpper[s].ToString("F9") +
+                            " containsTruth=" + (lastDetailStripValid[s] &&
+                                ContainsWithTolerance(lastDetailStripLower[s],
+                                    lastDetailStripUpper[s], truth)) +
+                            " support5,replace5,guard4=" + support);
+                    }
+                }
+            }
+            finally
+            {
+                p0f28Capture = oldCapture;
+                sceneDefinition.Build();
+                Physics.SyncTransforms();
+            }
+        }
+
         // P0-F-36: isolated, forward, reversed and post-matrix target fingerprints.
         // No changes to the estimator. Compare these logs across Editor restarts.
         private string RunP0FOrderTarget(int target, string phase)
