@@ -1147,6 +1147,112 @@ namespace WalkEdgeLight.Validation.UnitySimulation
 
         // P0-F-35: two-pass fingerprint of input and all three policy results.
         // Compare exact bit-level depth and strip state, not rounded log strings.
+        // P0-F-36: isolated, forward, reversed and post-matrix target fingerprints.
+        // No changes to the estimator. Compare these logs across Editor restarts.
+        private string RunP0FOrderTarget(int target, string phase)
+        {
+            int placement = target == 2 ? 5 : 0;
+            int size = target == 2 ? 32 : 16;
+            int count = target == 0 ? 12 : target == 1 ? 24 : 1;
+            double magnitude = target == 0 ? 0.10 : 0.02;
+            int seed = target == 0 ? 20261049 : target == 1 ? 20261011 : 20261051;
+            float offset = target == 0 ? 0f : 0.025f;
+            RunInternal(false, offset, false, 320, 240,
+                false, 0, 20261009, 0, 20261009,
+                0, 20261009, magnitude, false,
+                target == 2 ? 160 : size, size, count, seed, true, placement);
+            ulong stripHash = 14695981039346656037UL;
+            int valid = 0;
+            for (int s = 0; s < Strips; ++s)
+            {
+                if (lastDetailStripValid[s]) ++valid;
+                string state = lastDetailStripValid[s] + ":" +
+                    lastDetailStripLower[s].ToString("R",
+                        System.Globalization.CultureInfo.InvariantCulture) + ":" +
+                    lastDetailStripUpper[s].ToString("R",
+                        System.Globalization.CultureInfo.InvariantCulture) + ":" +
+                    lastDetailStripProjected[s].ToString("R",
+                        System.Globalization.CultureInfo.InvariantCulture) + ":" +
+                    lastDetailStripFar2[s].ToString("R",
+                        System.Globalization.CultureInfo.InvariantCulture);
+                foreach (char ch in state)
+                {
+                    stripHash ^= ch;
+                    stripHash *= 1099511628211UL;
+                }
+            }
+            double truth = sceneDefinition.EdgeZMetres + offset;
+            string[] policies = new string[3];
+            for (int policy = 0; policy < 3; ++policy)
+            {
+                double lo, hi;
+                bool bounded = policy == 0 ?
+                    TrySupportedInterval(5, out lo, out hi) :
+                    policy == 1 ?
+                    TryReplacementFiveInterval(out lo, out hi) :
+                    TrySupportedInterval(4, out lo, out hi);
+                bool rejected = bounded && policy == 2 &&
+                    HasSplitSupportCompetitor(lo, hi);
+                policies[policy] = !bounded ? "unbounded" :
+                    rejected ? "rejected" :
+                    lo.ToString("R", System.Globalization.CultureInfo.InvariantCulture) +
+                    ":" + hi.ToString("R", System.Globalization.CultureInfo.InvariantCulture) +
+                    ":" + ContainsWithTolerance(lo, hi, truth);
+            }
+            string fingerprint = lastRawDepthHash.ToString("X16") + "/" +
+                lastInjectedDepthHash.ToString("X16") + "/" +
+                stripHash.ToString("X16") + "|" + valid + "|" +
+                string.Join("|", policies);
+            Debug.Log("[WalkEdgeLight P0-F OrderTarget] phase=" + phase +
+                " target=" + target + " fingerprint=" + fingerprint);
+            return fingerprint;
+        }
+
+        public void RunP0FOrderDiagnostic()
+        {
+            if (sceneDefinition == null || sensorCamera == null)
+                throw new InvalidOperationException("P0-F references missing.");
+            bool oldCapture = p0f28Capture;
+            p0f28Capture = true;
+            var baseline = new string[3];
+            int mismatches = 0;
+            try
+            {
+                for (int target = 0; target < 3; ++target)
+                {
+                    sceneDefinition.Build();
+                    Physics.SyncTransforms();
+                    baseline[target] = RunP0FOrderTarget(target, "isolated");
+                }
+                for (int target = 0; target < 3; ++target)
+                {
+                    string value = RunP0FOrderTarget(target, "forward");
+                    if (value != baseline[target]) ++mismatches;
+                }
+                for (int target = 2; target >= 0; --target)
+                {
+                    string value = RunP0FOrderTarget(target, "reverse");
+                    if (value != baseline[target]) ++mismatches;
+                }
+                // Run the full existing 1,458-case matrix as an intervening workload.
+                // Its own two-pass diagnostic reports all matrix mismatches.
+                RunP0FPolicyRepeatability();
+                for (int target = 0; target < 3; ++target)
+                {
+                    string value = RunP0FOrderTarget(target, "afterMatrix");
+                    if (value != baseline[target]) ++mismatches;
+                }
+                Debug.Log("[WalkEdgeLight P0-F OrderSummary] comparisons=9 mismatches=" +
+                    mismatches + " (compare OrderTarget hashes across Editor restarts)");
+            }
+            finally
+            {
+                p0f28Capture = oldCapture;
+                sceneDefinition.Build();
+                Physics.SyncTransforms();
+            }
+        }
+
         public void RunP0FPolicyRepeatability()
         {
             if (sceneDefinition == null || sensorCamera == null)
