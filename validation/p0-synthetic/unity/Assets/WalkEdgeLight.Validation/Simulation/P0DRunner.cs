@@ -1147,6 +1147,134 @@ namespace WalkEdgeLight.Validation.UnitySimulation
 
         // P0-F-35: two-pass fingerprint of input and all three policy results.
         // Compare exact bit-level depth and strip state, not rounded log strings.
+        // P0-F-40: full 1458-case comparison; no default estimator changes.
+        public void RunP0FTwoSidedMatrix()
+        {
+            if (sceneDefinition == null || sensorCamera == null)
+                throw new InvalidOperationException("P0-F references missing.");
+            string[] groups = { "clustered", "spatial", "band" };
+            string[] names = { "baseline5", "exclude4", "reject4" };
+            int[] seeds = { 20261009, 20261039, 20261049 };
+            float[] offsets = { 0f, 0.010f, 0.025f };
+            double[] magnitudes = { 0.02, 0.05, 0.10 };
+            bool oldCapture = p0f28Capture;
+            p0f28Capture = true;
+            try
+            {
+                for (int group = 0; group < groups.Length; ++group)
+                {
+                    int[] bounded = new int[3], covered = new int[3], wrong = new int[3];
+                    int[] rejected = new int[3];
+                    int cases = 0, flaggedCases = 0;
+                    int placements = group == 0 ? 1 : group == 1 ? 4 : 3;
+                    int[] sizes = group == 2 ? new[] { 16, 32, 64 } : new[] { 4, 8, 16 };
+                    int[] counts = group == 2 ? new[] { 1 } : new[] { 4, 12, 24 };
+                    for (int placement = 0; placement < placements; ++placement)
+                        foreach (int size in sizes)
+                            foreach (int count in counts)
+                                foreach (double magnitude in magnitudes)
+                                    for (int si = 0; si < seeds.Length; ++si)
+                                        for (int k = 0; k < offsets.Length; ++k)
+                                        {
+                                            int mode = group == 2 ? placement + 4 : placement;
+                                            int seed = seeds[si] + k;
+                                            RunInternal(false, offsets[k], false, 320, 240,
+                                                false, 0, 20261009, 0, 20261009,
+                                                0, 20261009, magnitude, false,
+                                                group == 2 ? 160 : size, size,
+                                                count, seed, true, mode);
+                                            ++cases;
+                                            double truth = sceneDefinition.EdgeZMetres + offsets[k];
+                                            var lowerValues = new List<double>();
+                                            var upperValues = new List<double>();
+                                            for (int s = 0; s < Strips; ++s)
+                                                if (lastDetailStripValid[s])
+                                                {
+                                                    lowerValues.Add(lastDetailStripLower[s]);
+                                                    upperValues.Add(lastDetailStripUpper[s]);
+                                                }
+                                            lowerValues.Sort();
+                                            upperValues.Sort();
+                                            int n = lowerValues.Count;
+                                            double medLo = double.NaN, medHi = double.NaN;
+                                            if (n > 0)
+                                            {
+                                                medLo = n % 2 == 1 ? lowerValues[n / 2] :
+                                                    (lowerValues[n / 2 - 1] + lowerValues[n / 2]) * 0.5;
+                                                medHi = n % 2 == 1 ? upperValues[n / 2] :
+                                                    (upperValues[n / 2 - 1] + upperValues[n / 2]) * 0.5;
+                                            }
+                                            int flagged = 0, kept = 0;
+                                            double filteredLo = double.NegativeInfinity;
+                                            double filteredHi = double.PositiveInfinity;
+                                            for (int s = 0; s < Strips; ++s)
+                                            {
+                                                if (!lastDetailStripValid[s]) continue;
+                                                bool suspect = Math.Abs(lastDetailStripLower[s] - medLo) > 0.004 ||
+                                                    Math.Abs(lastDetailStripUpper[s] - medHi) > 0.004;
+                                                if (suspect) ++flagged;
+                                                else
+                                                {
+                                                    ++kept;
+                                                    filteredLo = Math.Max(filteredLo, lastDetailStripLower[s]);
+                                                    filteredHi = Math.Min(filteredHi, lastDetailStripUpper[s]);
+                                                }
+                                            }
+                                            if (flagged > 0) ++flaggedCases;
+                                            for (int policy = 0; policy < 3; ++policy)
+                                            {
+                                                double lo = double.NaN, hi = double.NaN;
+                                                bool ok;
+                                                if (policy == 0)
+                                                    ok = TrySupportedInterval(5, out lo, out hi);
+                                                else if (policy == 1)
+                                                {
+                                                    ok = kept >= 4 && filteredLo <= filteredHi;
+                                                    if (ok) { lo = filteredLo; hi = filteredHi; }
+                                                }
+                                                else
+                                                {
+                                                    ok = flagged == 0 &&
+                                                        TrySupportedInterval(5, out lo, out hi);
+                                                    if (flagged > 0) ++rejected[policy];
+                                                }
+                                                if (!ok) continue;
+                                                ++bounded[policy];
+                                                if (ContainsWithTolerance(lo, hi, truth))
+                                                    ++covered[policy];
+                                                else
+                                                {
+                                                    ++wrong[policy];
+                                                    Debug.Log("[WalkEdgeLight P0-F TwoSidedMatrixFail] group=" +
+                                                        groups[group] + " policy=" + names[policy] +
+                                                        " placement=" + mode + " size=" + size +
+                                                        " patches=" + count +
+                                                        " magnitudeMm=" + (magnitude * 1000).ToString("F0") +
+                                                        " seed=" + seed + " offset=" + offsets[k].ToString("F3") +
+                                                        " valid=" + n + " flagged=" + flagged +
+                                                        " kept=" + kept +
+                                                        " lower=" + lo.ToString("F9") +
+                                                        " upper=" + hi.ToString("F9") +
+                                                        " truth=" + truth.ToString("F9"));
+                                                }
+                                            }
+                                        }
+                    for (int policy = 0; policy < 3; ++policy)
+                        Debug.Log("[WalkEdgeLight P0-F TwoSidedMatrixSummary] group=" +
+                            groups[group] + " policy=" + names[policy] +
+                            " cases=" + cases + " flaggedCases=" + flaggedCases +
+                            " bounded=" + bounded[policy] + " covered=" + covered[policy] +
+                            " wrong=" + wrong[policy] + " rejected=" + rejected[policy]);
+                }
+            }
+            finally
+            {
+                p0f28Capture = oldCapture;
+                sceneDefinition.Build();
+                Physics.SyncTransforms();
+            }
+        }
+
         // P0-F-39: two-sided median deviation; diagnostic only.
         public void RunP0FTwoSidedDisagreement()
         {
