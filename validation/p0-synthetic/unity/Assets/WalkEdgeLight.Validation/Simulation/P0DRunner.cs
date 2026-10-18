@@ -1147,6 +1147,137 @@ namespace WalkEdgeLight.Validation.UnitySimulation
 
         // P0-F-35: two-pass fingerprint of input and all three policy results.
         // Compare exact bit-level depth and strip state, not rounded log strings.
+        // P0-F-41: threshold sensitivity and multi-strip correlated disagreement.
+        // Diagnostic only; the production estimator remains unchanged.
+        public void RunP0FTwoSidedThresholdStress()
+        {
+            if (sceneDefinition == null || sensorCamera == null)
+                throw new InvalidOperationException("P0-F references missing.");
+            string[] groups = { "clustered", "spatial", "band" };
+            double[] thresholdsMm = { 2, 3, 4, 5, 6 };
+            int[] seeds = { 20261009, 20261039, 20261049 };
+            float[] offsets = { 0f, 0.010f, 0.025f };
+            double[] magnitudes = { 0.02, 0.05, 0.10 };
+            bool oldCapture = p0f28Capture;
+            p0f28Capture = true;
+            try
+            {
+                for (int group = 0; group < groups.Length; ++group)
+                {
+                    int[] bounded = new int[thresholdsMm.Length];
+                    int[] covered = new int[thresholdsMm.Length];
+                    int[] wrong = new int[thresholdsMm.Length];
+                    int[] flaggedCases = new int[thresholdsMm.Length];
+                    int[] multiFlaggedCases = new int[thresholdsMm.Length];
+                    int[] insufficient = new int[thresholdsMm.Length];
+                    int cases = 0;
+                    int placements = group == 0 ? 1 : group == 1 ? 4 : 3;
+                    int[] sizes = group == 2 ? new[] { 16, 32, 64 } :
+                        new[] { 4, 8, 16 };
+                    int[] counts = group == 2 ? new[] { 1 } : new[] { 4, 12, 24 };
+                    for (int placement = 0; placement < placements; ++placement)
+                        foreach (int size in sizes)
+                            foreach (int count in counts)
+                                foreach (double magnitude in magnitudes)
+                                    for (int si = 0; si < seeds.Length; ++si)
+                                        for (int k = 0; k < offsets.Length; ++k)
+                                        {
+                                            int mode = group == 2 ? placement + 4 : placement;
+                                            int seed = seeds[si] + k;
+                                            RunInternal(false, offsets[k], false, 320, 240,
+                                                false, 0, 20261009, 0, 20261009,
+                                                0, 20261009, magnitude, false,
+                                                group == 2 ? 160 : size, size,
+                                                count, seed, true, mode);
+                                            ++cases;
+                                            double truth = sceneDefinition.EdgeZMetres + offsets[k];
+                                            var lows = new List<double>();
+                                            var highs = new List<double>();
+                                            for (int s = 0; s < Strips; ++s)
+                                                if (lastDetailStripValid[s])
+                                                {
+                                                    lows.Add(lastDetailStripLower[s]);
+                                                    highs.Add(lastDetailStripUpper[s]);
+                                                }
+                                            lows.Sort();
+                                            highs.Sort();
+                                            int n = lows.Count;
+                                            if (n == 0)
+                                            {
+                                                for (int t = 0; t < thresholdsMm.Length; ++t)
+                                                    ++insufficient[t];
+                                                continue;
+                                            }
+                                            double medLo = n % 2 == 1 ? lows[n / 2] :
+                                                (lows[n / 2 - 1] + lows[n / 2]) * 0.5;
+                                            double medHi = n % 2 == 1 ? highs[n / 2] :
+                                                (highs[n / 2 - 1] + highs[n / 2]) * 0.5;
+                                            for (int t = 0; t < thresholdsMm.Length; ++t)
+                                            {
+                                                int flagged = 0, kept = 0;
+                                                double lo = double.NegativeInfinity;
+                                                double hi = double.PositiveInfinity;
+                                                double threshold = thresholdsMm[t] / 1000;
+                                                for (int s = 0; s < Strips; ++s)
+                                                {
+                                                    if (!lastDetailStripValid[s]) continue;
+                                                    bool suspect =
+                                                        Math.Abs(lastDetailStripLower[s] - medLo) > threshold ||
+                                                        Math.Abs(lastDetailStripUpper[s] - medHi) > threshold;
+                                                    if (suspect) ++flagged;
+                                                    else
+                                                    {
+                                                        ++kept;
+                                                        lo = Math.Max(lo, lastDetailStripLower[s]);
+                                                        hi = Math.Min(hi, lastDetailStripUpper[s]);
+                                                    }
+                                                }
+                                                if (flagged > 0) ++flaggedCases[t];
+                                                if (flagged > 1) ++multiFlaggedCases[t];
+                                                if (kept < 4)
+                                                {
+                                                    ++insufficient[t];
+                                                    continue;
+                                                }
+                                                if (lo > hi) continue;
+                                                ++bounded[t];
+                                                if (ContainsWithTolerance(lo, hi, truth))
+                                                    ++covered[t];
+                                                else
+                                                {
+                                                    ++wrong[t];
+                                                    Debug.Log("[WalkEdgeLight P0-F ThresholdFail] group=" +
+                                                        groups[group] + " thresholdMm=" + thresholdsMm[t] +
+                                                        " placement=" + mode + " size=" + size +
+                                                        " patches=" + count +
+                                                        " magnitudeMm=" + (magnitude * 1000).ToString("F0") +
+                                                        " seed=" + seed + " offset=" + offsets[k].ToString("F3") +
+                                                        " valid=" + n + " flagged=" + flagged +
+                                                        " kept=" + kept +
+                                                        " lower=" + lo.ToString("F9") +
+                                                        " upper=" + hi.ToString("F9") +
+                                                        " truth=" + truth.ToString("F9"));
+                                                }
+                                            }
+                                        }
+                    for (int t = 0; t < thresholdsMm.Length; ++t)
+                        Debug.Log("[WalkEdgeLight P0-F ThresholdSummary] group=" +
+                            groups[group] + " thresholdMm=" + thresholdsMm[t] +
+                            " cases=" + cases + " flaggedCases=" + flaggedCases[t] +
+                            " multiFlaggedCases=" + multiFlaggedCases[t] +
+                            " insufficient=" + insufficient[t] +
+                            " bounded=" + bounded[t] + " covered=" + covered[t] +
+                            " wrong=" + wrong[t]);
+                }
+            }
+            finally
+            {
+                p0f28Capture = oldCapture;
+                sceneDefinition.Build();
+                Physics.SyncTransforms();
+            }
+        }
+
         // P0-F-40: full 1458-case comparison; no default estimator changes.
         public void RunP0FTwoSidedMatrix()
         {
