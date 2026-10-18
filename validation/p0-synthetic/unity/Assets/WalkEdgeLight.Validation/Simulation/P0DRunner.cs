@@ -1147,6 +1147,153 @@ namespace WalkEdgeLight.Validation.UnitySimulation
 
         // P0-F-35: two-pass fingerprint of input and all three policy results.
         // Compare exact bit-level depth and strip state, not rounded log strings.
+        // P0-F-44: geometric height consistency from reconstructed depth points.
+        // No scene edge truth is consulted by the checker. The source is the
+        // SAME injected depth frame, so correlated errors remain possible.
+        private bool p0f44Capture;
+        private readonly List<NumericsVector3> p0f44Points = new List<NumericsVector3>();
+
+        private static double MedianHeight(List<double> values)
+        {
+            values.Sort();
+            int n = values.Count;
+            return n % 2 == 1 ? values[n / 2] :
+                (values[n / 2 - 1] + values[n / 2]) * 0.5;
+        }
+
+        private bool CheckP0F44Height(double lo, double hi,
+            out int nearCount, out int farCount, out double dropMm)
+        {
+            var near = new List<double>();
+            var far = new List<double>();
+            double middle = (lo + hi) * 0.5;
+            // Separate samples from the candidate interval by 15..65 mm.
+            for (int i = 0; i < p0f44Points.Count; ++i)
+            {
+                var point = p0f44Points[i];
+                if (point.Z >= middle - 0.065 && point.Z <= middle - 0.015)
+                    near.Add(point.Y);
+                if (point.Z >= middle + 0.015 && point.Z <= middle + 0.065)
+                    far.Add(point.Y);
+            }
+            nearCount = near.Count;
+            farCount = far.Count;
+            dropMm = double.NaN;
+            if (nearCount < 20 || farCount < 20) return false;
+            dropMm = (MedianHeight(near) - MedianHeight(far)) * 1000;
+            // Expect approximately 20 mm downward step. Broad validation
+            // tolerance is deliberate; this is a diagnostic, not safety logic.
+            return dropMm >= 10 && dropMm <= 30;
+        }
+
+        public void RunP0F44GeometryDiagnostic()
+        {
+            if (sceneDefinition == null || sensorCamera == null)
+                throw new InvalidOperationException("P0-F references missing.");
+            bool previous = p0f44Capture;
+            p0f44Capture = true;
+            try
+            {
+                int[] seeds = { 20261009, 20261039, 20261049 };
+                float[] offsets = { 0f, 0.010f, 0.025f };
+                int cases = 0, candidates = 0, geometryAccepted = 0;
+                int acceptedCovered = 0, acceptedWrong = 0, rejectedWrong = 0;
+                int insufficient = 0;
+                for (int group = 0; group < 3; ++group)
+                {
+                    int placements = group == 0 ? 1 : group == 1 ? 4 : 3;
+                    int[] sizes = group == 2 ? new[] { 16, 32, 64 } :
+                        new[] { 4, 8, 16 };
+                    int[] counts = group == 2 ? new[] { 1 } : new[] { 4, 12, 24 };
+                    for (int placement = 0; placement < placements; ++placement)
+                        foreach (int size in sizes)
+                            foreach (int count in counts)
+                                foreach (double magnitude in new[] { 0.02, 0.05, 0.10 })
+                                    for (int si = 0; si < seeds.Length; ++si)
+                                        for (int k = 0; k < offsets.Length; ++k)
+                                        {
+                                            ++cases;
+                                            int mode = group == 2 ? placement + 4 : placement;
+                                            RunInternal(false, offsets[k], false, 320, 240,
+                                                false, 0, 20261009, 0, 20261009,
+                                                0, 20261009, magnitude, false,
+                                                group == 2 ? 160 : size, size,
+                                                count, seeds[si] + k, true, mode);
+                                            var lows = new List<double>();
+                                            var highs = new List<double>();
+                                            for (int s = 0; s < Strips; ++s)
+                                                if (lastDetailStripValid[s])
+                                                {
+                                                    lows.Add(lastDetailStripLower[s]);
+                                                    highs.Add(lastDetailStripUpper[s]);
+                                                }
+                                            if (lows.Count == 0) continue;
+                                            lows.Sort();
+                                            highs.Sort();
+                                            int n = lows.Count;
+                                            double medLo = n % 2 == 1 ? lows[n / 2] :
+                                                (lows[n / 2 - 1] + lows[n / 2]) / 2;
+                                            double medHi = n % 2 == 1 ? highs[n / 2] :
+                                                (highs[n / 2 - 1] + highs[n / 2]) / 2;
+                                            int kept = 0;
+                                            double lo = double.NegativeInfinity, hi = double.PositiveInfinity;
+                                            for (int s = 0; s < Strips; ++s)
+                                            {
+                                                if (!lastDetailStripValid[s] ||
+                                                    Math.Abs(lastDetailStripLower[s] - medLo) > 0.004 ||
+                                                    Math.Abs(lastDetailStripUpper[s] - medHi) > 0.004)
+                                                    continue;
+                                                ++kept;
+                                                lo = Math.Max(lo, lastDetailStripLower[s]);
+                                                hi = Math.Min(hi, lastDetailStripUpper[s]);
+                                            }
+                                            if (kept < 4 || lo > hi) continue;
+                                            ++candidates;
+                                            double truth = sceneDefinition.EdgeZMetres + offsets[k];
+                                            bool correct = ContainsWithTolerance(lo, hi, truth);
+                                            int nearCount, farCount;
+                                            double dropMm;
+                                            bool pass = CheckP0F44Height(lo, hi,
+                                                out nearCount, out farCount, out dropMm);
+                                            if (nearCount < 20 || farCount < 20) ++insufficient;
+                                            if (pass)
+                                            {
+                                                ++geometryAccepted;
+                                                if (correct) ++acceptedCovered;
+                                                else ++acceptedWrong;
+                                            }
+                                            else if (!correct) ++rejectedWrong;
+                                            if (!correct)
+                                                Debug.Log("[WalkEdgeLight P0-F GeometryFail] group=" + group +
+                                                    " placement=" + mode + " size=" + size +
+                                                    " patches=" + count + " magnitudeMm=" + magnitude * 1000 +
+                                                    " seed=" + (seeds[si] + k) +
+                                                    " offset=" + offsets[k] +
+                                                    " lower=" + lo.ToString("F9") +
+                                                    " upper=" + hi.ToString("F9") +
+                                                    " near=" + nearCount + " far=" + farCount +
+                                                    " dropMm=" + dropMm.ToString("F3") +
+                                                    " geometryAccepted=" + pass);
+                                        }
+                }
+                Debug.Log("[WalkEdgeLight P0-F GeometrySummary] cases=" + cases +
+                    " candidates=" + candidates +
+                    " geometryAccepted=" + geometryAccepted +
+                    " acceptedCovered=" + acceptedCovered +
+                    " acceptedWrong=" + acceptedWrong +
+                    " rejectedWrong=" + rejectedWrong +
+                    " insufficient=" + insufficient +
+                    " source=injectedDepth truthUsedForEvaluationOnly=True");
+            }
+            finally
+            {
+                p0f44Capture = previous;
+                p0f44Points.Clear();
+                sceneDefinition.Build();
+                Physics.SyncTransforms();
+            }
+        }
+
         // P0-F-43: oracle separation diagnostic. Truth is used ONLY by this
         // synthetic validation; it is not an independent runtime sensor.
         public void RunP0FOracleSeparation()
@@ -4167,6 +4314,7 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                 for (int b = 0; b < Bins; ++b)
                     cells[s, b] = new List<NumericsVector3>();
 
+            if (p0f44Capture) p0f44Points.Clear();
             var groundPoints = new List<NumericsVector3>();
             for (int v = 0; v < imageHeight; ++v)
                 for (int u = 0; u < imageWidth; ++u)
@@ -4174,6 +4322,7 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                     var p = PointReconstructor.ReconstructWorldPoint(frame, u, v);
                     if (!p.HasValue) continue;
                     ++lastReconstructedPoints;
+                    if (p0f44Capture) p0f44Points.Add(p.Value);
                     var s = (int)Math.Floor((p.Value.X + 1f) / 0.25f);
                     var b = (int)Math.Floor(p.Value.Z / BinWidth);
                     // Use the visible near-side floor, not a fixed 0.4 m camera-relative window.
