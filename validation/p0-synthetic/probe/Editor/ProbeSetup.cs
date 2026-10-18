@@ -334,6 +334,16 @@ namespace WalkEdgeLight.Validation.Editor
             runner.RunCorrelatedBandFailureDetail();
         }
 
+        [MenuItem("WalkEdgeLight/Probe/Run P0-F Two-Sided Matrix")]
+        internal static void RunP0FTwoSidedMatrix()
+        {
+            var root = GameObject.Find(RootName);
+            Require(root != null, "Run Setup P0-A first");
+            var runner = root.GetComponent<P0DRunner>();
+            Require(runner != null, "P0DRunner missing");
+            runner.RunP0FTwoSidedMatrix();
+        }
+
         [MenuItem("WalkEdgeLight/Probe/Run P0-F Two-Sided Disagreement")]
         internal static void RunP0FTwoSidedDisagreement()
         {
