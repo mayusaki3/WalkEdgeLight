@@ -1186,6 +1186,42 @@ namespace WalkEdgeLight.Validation.UnitySimulation
             return dropMm >= 10 && dropMm <= 30;
         }
 
+        private static double P0F45MedianOrNaN(List<double> values)
+        {
+            return values.Count == 0 ? double.NaN : MedianHeight(values);
+        }
+
+        private void P0F45LogRejection(int group, int placement, int size, int patches,
+            double magnitude, int seed, float offset, double truth, double lo, double hi,
+            int nearCount, int farCount, double dropMm)
+        {
+            double middle = (lo + hi) * 0.5;
+            var near = new List<double>();
+            var far = new List<double>();
+            foreach (var point in p0f44Points)
+            {
+                if (point.Z >= middle - 0.065 && point.Z <= middle - 0.015)
+                    near.Add(point.Y);
+                if (point.Z >= middle + 0.015 && point.Z <= middle + 0.065)
+                    far.Add(point.Y);
+            }
+            double nearMedian = P0F45MedianOrNaN(near);
+            double farMedian = P0F45MedianOrNaN(far);
+            string reason = nearCount < 20 || farCount < 20 ? "insufficient" :
+                dropMm < 10 ? "dropBelow10" : dropMm > 30 ? "dropAbove30" : "other";
+            Debug.Log("[WalkEdgeLight P0-F GeometryReject] group=" + group +
+                " placement=" + placement + " size=" + size + " patches=" + patches +
+                " magnitudeMm=" + (magnitude * 1000).ToString("F0") +
+                " seed=" + seed + " offset=" + offset.ToString("F3") +
+                " truth=" + truth.ToString("F9") +
+                " lower=" + lo.ToString("F9") + " upper=" + hi.ToString("F9") +
+                " midpointErrorMm=" + (Math.Abs(middle - truth) * 1000).ToString("F3") +
+                " nearCount=" + nearCount + " farCount=" + farCount +
+                " nearMedianMm=" + (nearMedian * 1000).ToString("F3") +
+                " farMedianMm=" + (farMedian * 1000).ToString("F3") +
+                " dropMm=" + dropMm.ToString("F3") + " reason=" + reason);
+        }
+
         public void RunP0F44GeometryDiagnostic()
         {
             if (sceneDefinition == null || sensorCamera == null)
@@ -1199,6 +1235,10 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                 int cases = 0, candidates = 0, geometryAccepted = 0;
                 int acceptedCovered = 0, acceptedWrong = 0, rejectedWrong = 0;
                 int insufficient = 0;
+                int[] groupCandidates = new int[3];
+                int[] groupRejected = new int[3];
+                int[] groupBelow = new int[3];
+                int[] groupAbove = new int[3];
                 for (int group = 0; group < 3; ++group)
                 {
                     int placements = group == 0 ? 1 : group == 1 ? 4 : 3;
@@ -1249,6 +1289,7 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                                             }
                                             if (kept < 4 || lo > hi) continue;
                                             ++candidates;
+                                            ++groupCandidates[group];
                                             double truth = sceneDefinition.EdgeZMetres + offsets[k];
                                             bool correct = ContainsWithTolerance(lo, hi, truth);
                                             int nearCount, farCount;
@@ -1263,6 +1304,15 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                                                 else ++acceptedWrong;
                                             }
                                             else if (!correct) ++rejectedWrong;
+                                            if (!pass)
+                                            {
+                                                ++groupRejected[group];
+                                                if (dropMm < 10) ++groupBelow[group];
+                                                if (dropMm > 30) ++groupAbove[group];
+                                                P0F45LogRejection(group, mode, size, count, magnitude,
+                                                    seeds[si] + k, offsets[k], truth, lo, hi,
+                                                    nearCount, farCount, dropMm);
+                                            }
                                             if (!correct)
                                                 Debug.Log("[WalkEdgeLight P0-F GeometryFail] group=" + group +
                                                     " placement=" + mode + " size=" + size +
@@ -1276,6 +1326,11 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                                                     " geometryAccepted=" + pass);
                                         }
                 }
+                for (int group = 0; group < 3; ++group)
+                    Debug.Log("[WalkEdgeLight P0-F GeometryRejectSummary] group=" + group +
+                        " candidates=" + groupCandidates[group] +
+                        " rejected=" + groupRejected[group] +
+                        " below10=" + groupBelow[group] + " above30=" + groupAbove[group]);
                 Debug.Log("[WalkEdgeLight P0-F GeometrySummary] cases=" + cases +
                     " candidates=" + candidates +
                     " geometryAccepted=" + geometryAccepted +
