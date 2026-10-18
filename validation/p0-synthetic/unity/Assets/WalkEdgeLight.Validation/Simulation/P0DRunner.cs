@@ -1147,6 +1147,85 @@ namespace WalkEdgeLight.Validation.UnitySimulation
 
         // P0-F-35: two-pass fingerprint of input and all three policy results.
         // Compare exact bit-level depth and strip state, not rounded log strings.
+        // P0-F-43: oracle separation diagnostic. Truth is used ONLY by this
+        // synthetic validation; it is not an independent runtime sensor.
+        public void RunP0FOracleSeparation()
+        {
+            const double truth = 1.0;
+            const double threshold = 0.004;
+            const double oracleTolerance = 0.010;
+            int[] corruptCounts = { 4, 5, 6 };
+            double[] shifts = { 0.02, 0.05, 0.10 };
+            foreach (int count in corruptCounts)
+            {
+                int cases = 0, candidate = 0, candidateWrong = 0;
+                int oracleAccepted = 0, oracleWrong = 0, oracleRejectedWrong = 0;
+                for (int mask = 0; mask < (1 << Strips); ++mask)
+                {
+                    int bits = 0;
+                    for (int s = 0; s < Strips; ++s)
+                        if ((mask & (1 << s)) != 0) ++bits;
+                    if (bits != count) continue;
+                    for (int direction = 0; direction < 2; ++direction)
+                        foreach (double magnitude in shifts)
+                        {
+                            ++cases;
+                            double shift = direction == 0 ? magnitude : -magnitude;
+                            double[] lower = new double[Strips];
+                            double[] upper = new double[Strips];
+                            var lows = new List<double>();
+                            var highs = new List<double>();
+                            for (int s = 0; s < Strips; ++s)
+                            {
+                                bool bad = (mask & (1 << s)) != 0;
+                                lower[s] = 0.994 + (bad ? shift : 0);
+                                upper[s] = 1.004 + (bad ? shift : 0);
+                                lows.Add(lower[s]);
+                                highs.Add(upper[s]);
+                            }
+                            lows.Sort();
+                            highs.Sort();
+                            double medLo = (lows[3] + lows[4]) * 0.5;
+                            double medHi = (highs[3] + highs[4]) * 0.5;
+                            int kept = 0;
+                            double lo = double.NegativeInfinity;
+                            double hi = double.PositiveInfinity;
+                            for (int s = 0; s < Strips; ++s)
+                            {
+                                if (Math.Abs(lower[s] - medLo) > threshold ||
+                                    Math.Abs(upper[s] - medHi) > threshold) continue;
+                                ++kept;
+                                lo = Math.Max(lo, lower[s]);
+                                hi = Math.Min(hi, upper[s]);
+                            }
+                            if (kept < 4 || lo > hi) continue;
+                            ++candidate;
+                            bool correct = ContainsWithTolerance(lo, hi, truth);
+                            if (!correct) ++candidateWrong;
+                            // An oracle centered on synthetic ground truth.
+                            // Overlap with the +/-10 mm oracle interval is only
+                            // a plausibility check, NOT proof of truth coverage.
+                            bool oraclePass = lo <= truth + oracleTolerance &&
+                                hi >= truth - oracleTolerance;
+                            if (oraclePass)
+                            {
+                                ++oracleAccepted;
+                                if (!correct) ++oracleWrong;
+                            }
+                            else if (!correct) ++oracleRejectedWrong;
+                        }
+                }
+                Debug.Log("[WalkEdgeLight P0-F OracleSummary] corrupt=" + count +
+                    " cases=" + cases + " candidate=" + candidate +
+                    " candidateWrong=" + candidateWrong +
+                    " oracleAccepted=" + oracleAccepted +
+                    " oracleWrong=" + oracleWrong +
+                    " oracleRejectedWrong=" + oracleRejectedWrong +
+                    " oracleToleranceMm=" + (oracleTolerance * 1000).ToString("F0") +
+                    " source=syntheticGroundTruth validationOnly=True");
+            }
+        }
+
         // P0-F-42: controlled strip-level consensus inversion. This is NOT a
         // depth-image simulation: deliberately replace 4..6 of 8 strip intervals
         // with mutually agreeing but incorrect intervals to stress the median.
