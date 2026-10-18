@@ -1147,6 +1147,102 @@ namespace WalkEdgeLight.Validation.UnitySimulation
 
         // P0-F-35: two-pass fingerprint of input and all three policy results.
         // Compare exact bit-level depth and strip state, not rounded log strings.
+        // P0-F-39: two-sided median deviation; diagnostic only.
+        public void RunP0FTwoSidedDisagreement()
+        {
+            if (sceneDefinition == null || sensorCamera == null)
+                throw new InvalidOperationException("P0-F references missing.");
+            bool oldCapture = p0f28Capture;
+            p0f28Capture = true;
+            try
+            {
+                for (int target = 0; target < 2; ++target)
+                {
+                    sceneDefinition.Build();
+                    Physics.SyncTransforms();
+                    RunP0FOrderTarget(target, "twoSided");
+                    double truth = sceneDefinition.EdgeZMetres +
+                        (target == 0 ? 0f : 0.025f);
+                    var lowers = new List<double>();
+                    var uppers = new List<double>();
+                    for (int s = 0; s < Strips; ++s)
+                        if (lastDetailStripValid[s])
+                        {
+                            lowers.Add(lastDetailStripLower[s]);
+                            uppers.Add(lastDetailStripUpper[s]);
+                        }
+                    lowers.Sort();
+                    uppers.Sort();
+                    int n = lowers.Count;
+                    if (n == 0) continue;
+                    double medianLower = n % 2 == 1 ? lowers[n / 2] :
+                        (lowers[n / 2 - 1] + lowers[n / 2]) * 0.5;
+                    double medianUpper = n % 2 == 1 ? uppers[n / 2] :
+                        (uppers[n / 2 - 1] + uppers[n / 2]) * 0.5;
+                    Debug.Log("[WalkEdgeLight P0-F TwoSidedTarget] target=" + target +
+                        " truth=" + truth.ToString("F9") + " valid=" + n +
+                        " medianLower=" + medianLower.ToString("F9") +
+                        " medianUpper=" + medianUpper.ToString("F9"));
+                    foreach (double thresholdMm in new double[] { 2, 4, 6, 10 })
+                    {
+                        bool[] flagged = new bool[Strips];
+                        int flaggedCount = 0, kept = 0;
+                        for (int s = 0; s < Strips; ++s)
+                        {
+                            if (!lastDetailStripValid[s]) continue;
+                            double lowerDelta = (lastDetailStripLower[s] - medianLower) * 1000;
+                            double upperDelta = (lastDetailStripUpper[s] - medianUpper) * 1000;
+                            flagged[s] = Math.Abs(lowerDelta) > thresholdMm ||
+                                Math.Abs(upperDelta) > thresholdMm;
+                            if (flagged[s]) ++flaggedCount;
+                            else ++kept;
+                            Debug.Log("[WalkEdgeLight P0-F TwoSidedStrip] target=" + target +
+                                " thresholdMm=" + thresholdMm + " strip=" + s +
+                                " lowerDeltaMm=" + lowerDelta.ToString("F3") +
+                                " upperDeltaMm=" + upperDelta.ToString("F3") +
+                                " flagged=" + flagged[s]);
+                        }
+                        // Compare exclusion against conservative rejection.
+                        // Exclusion requires at least four retained strips; otherwise unbounded.
+                        bool exclusionBounded = false;
+                        double exclusionLower = double.NaN, exclusionUpper = double.NaN;
+                        if (kept >= 4)
+                        {
+                            double lo = double.NegativeInfinity;
+                            double hi = double.PositiveInfinity;
+                            for (int s = 0; s < Strips; ++s)
+                                if (lastDetailStripValid[s] && !flagged[s])
+                                {
+                                    lo = Math.Max(lo, lastDetailStripLower[s]);
+                                    hi = Math.Min(hi, lastDetailStripUpper[s]);
+                                }
+                            if (lo <= hi)
+                            {
+                                exclusionBounded = true;
+                                exclusionLower = lo;
+                                exclusionUpper = hi;
+                            }
+                        }
+                        Debug.Log("[WalkEdgeLight P0-F TwoSidedPolicy] target=" + target +
+                            " thresholdMm=" + thresholdMm +
+                            " flagged=" + flaggedCount + " kept=" + kept +
+                            " excludeBounded=" + exclusionBounded +
+                            " excludeLower=" + exclusionLower.ToString("F9") +
+                            " excludeUpper=" + exclusionUpper.ToString("F9") +
+                            " excludeCovered=" + (exclusionBounded &&
+                                ContainsWithTolerance(exclusionLower, exclusionUpper, truth)) +
+                            " rejectBounded=" + (flaggedCount == 0 && n >= 5));
+                    }
+                }
+            }
+            finally
+            {
+                p0f28Capture = oldCapture;
+                sceneDefinition.Build();
+                Physics.SyncTransforms();
+            }
+        }
+
         // P0-F-38: inspect each strip's interval and contribution to all candidates.
         // Diagnostic only; no estimator or default-policy changes.
         public void RunP0FFailureStripDetail()
