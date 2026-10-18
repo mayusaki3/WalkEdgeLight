@@ -1147,6 +1147,97 @@ namespace WalkEdgeLight.Validation.UnitySimulation
 
         // P0-F-35: two-pass fingerprint of input and all three policy results.
         // Compare exact bit-level depth and strip state, not rounded log strings.
+        // P0-F-42: controlled strip-level consensus inversion. This is NOT a
+        // depth-image simulation: deliberately replace 4..6 of 8 strip intervals
+        // with mutually agreeing but incorrect intervals to stress the median.
+        public void RunP0FConsensusInversion()
+        {
+            const double truth = 1.0;
+            const double threshold = 0.004;
+            int[] corruptCounts = { 4, 5, 6 };
+            double[] shifts = { 0.02, 0.05, 0.10 };
+            foreach (int corruptCount in corruptCounts)
+            {
+                int cases = 0, bounded = 0, covered = 0, wrong = 0;
+                int flaggedCases = 0, invertedMedian = 0;
+                int[] wrongByDirection = new int[2];
+                for (int mask = 0; mask < (1 << Strips); ++mask)
+                {
+                    int bits = 0;
+                    for (int s = 0; s < Strips; ++s)
+                        if ((mask & (1 << s)) != 0) ++bits;
+                    if (bits != corruptCount) continue;
+                    for (int direction = 0; direction < 2; ++direction)
+                        foreach (double magnitude in shifts)
+                        {
+                            ++cases;
+                            double shift = direction == 0 ? magnitude : -magnitude;
+                            double[] lower = new double[Strips];
+                            double[] upper = new double[Strips];
+                            var lowers = new List<double>();
+                            var uppers = new List<double>();
+                            for (int s = 0; s < Strips; ++s)
+                            {
+                                bool corrupted = (mask & (1 << s)) != 0;
+                                lower[s] = 0.994 + (corrupted ? shift : 0);
+                                upper[s] = 1.004 + (corrupted ? shift : 0);
+                                lowers.Add(lower[s]);
+                                uppers.Add(upper[s]);
+                            }
+                            lowers.Sort();
+                            uppers.Sort();
+                            double medianLo = (lowers[3] + lowers[4]) * 0.5;
+                            double medianHi = (uppers[3] + uppers[4]) * 0.5;
+                            if (Math.Abs(medianLo - 0.994) > threshold)
+                                ++invertedMedian;
+                            int flagged = 0, kept = 0;
+                            double lo = double.NegativeInfinity;
+                            double hi = double.PositiveInfinity;
+                            for (int s = 0; s < Strips; ++s)
+                            {
+                                bool suspect = Math.Abs(lower[s] - medianLo) > threshold ||
+                                    Math.Abs(upper[s] - medianHi) > threshold;
+                                if (suspect) ++flagged;
+                                else
+                                {
+                                    ++kept;
+                                    lo = Math.Max(lo, lower[s]);
+                                    hi = Math.Min(hi, upper[s]);
+                                }
+                            }
+                            if (flagged > 0) ++flaggedCases;
+                            if (kept < 4 || lo > hi) continue;
+                            ++bounded;
+                            if (ContainsWithTolerance(lo, hi, truth)) ++covered;
+                            else
+                            {
+                                ++wrong;
+                                ++wrongByDirection[direction];
+                                // One representative per count/direction/shift.
+                                if (wrongByDirection[direction] == 1)
+                                    Debug.Log("[WalkEdgeLight P0-F ConsensusFail] corrupt=" +
+                                        corruptCount + " mask=" + mask +
+                                        " direction=" + (direction == 0 ? "forward" : "backward") +
+                                        " magnitudeMm=" + (magnitude * 1000).ToString("F0") +
+                                        " medianLower=" + medianLo.ToString("F9") +
+                                        " flagged=" + flagged + " kept=" + kept +
+                                        " lower=" + lo.ToString("F9") +
+                                        " upper=" + hi.ToString("F9") +
+                                        " truth=" + truth.ToString("F9"));
+                            }
+                        }
+                }
+                Debug.Log("[WalkEdgeLight P0-F ConsensusSummary] corrupt=" +
+                    corruptCount + " cases=" + cases +
+                    " invertedMedian=" + invertedMedian +
+                    " flaggedCases=" + flaggedCases +
+                    " bounded=" + bounded + " covered=" + covered +
+                    " wrong=" + wrong +
+                    " wrongForward=" + wrongByDirection[0] +
+                    " wrongBackward=" + wrongByDirection[1]);
+            }
+        }
+
         // P0-F-41: threshold sensitivity and multi-strip correlated disagreement.
         // Diagnostic only; the production estimator remains unchanged.
         public void RunP0FTwoSidedThresholdStress()
