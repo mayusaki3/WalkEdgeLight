@@ -334,6 +334,12 @@ namespace WalkEdgeLight.Validation.Editor
             runner.RunCorrelatedBandFailureDetail();
         }
 
+        [MenuItem("WalkEdgeLight/Probe/Run P0-F Geometry Rejection Detail")]
+        internal static void RunP0FGeometryRejectionDetail()
+        {
+            RunP0FGeometryDiagnostic();
+        }
+
         [MenuItem("WalkEdgeLight/Probe/Run P0-F Geometry Diagnostic")]
         internal static void RunP0FGeometryDiagnostic()
         {
