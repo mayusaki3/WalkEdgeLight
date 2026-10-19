@@ -1222,6 +1222,74 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                 " dropMm=" + dropMm.ToString("F3") + " reason=" + reason);
         }
 
+        // P0-F-47: locate the strongest downward height transition independently
+        // in each lateral region. Truth is printed for evaluation only.
+        private void P0F47EdgeLocationDetail(double lo, double hi, double truth,
+            int group, int placement, int size, int patches, double magnitude,
+            int seed, float offset)
+        {
+            const int regions = 8;
+            double candidate = (lo + hi) * 0.5;
+            int located = 0, nearCandidate = 0, nearTruth = 0;
+            string details = "";
+            for (int region = 0; region < regions; ++region)
+            {
+                double left = -1.0 + region * 0.25;
+                double right = left + 0.25;
+                var points = new List<NumericsVector3>();
+                foreach (var point in p0f44Points)
+                    if (point.X >= left && point.X < right &&
+                        point.Z >= candidate - 0.36 && point.Z <= candidate + 0.36)
+                        points.Add(point);
+                double bestZ = double.NaN, bestDrop = double.NaN;
+                double bestScore = double.NegativeInfinity;
+                // Scan in 10 mm increments with the same 15..65 mm windows.
+                // Prefer an approximately 20 mm step, not arbitrary large outliers.
+                for (int step = -35; step <= 35; ++step)
+                {
+                    double z = candidate + step * 0.01;
+                    var near = new List<double>();
+                    var far = new List<double>();
+                    foreach (var point in points)
+                    {
+                        if (point.Z >= z - 0.065 && point.Z <= z - 0.015)
+                            near.Add(point.Y);
+                        if (point.Z >= z + 0.015 && point.Z <= z + 0.065)
+                            far.Add(point.Y);
+                    }
+                    if (near.Count < 20 || far.Count < 20) continue;
+                    double drop = (MedianHeight(near) - MedianHeight(far)) * 1000;
+                    if (drop < 10 || drop > 30) continue;
+                    double score = 10 - Math.Abs(drop - 20);
+                    if (score > bestScore)
+                    {
+                        bestScore = score;
+                        bestZ = z;
+                        bestDrop = drop;
+                    }
+                }
+                if (!double.IsNaN(bestZ))
+                {
+                    ++located;
+                    if (Math.Abs(bestZ - candidate) <= 0.015) ++nearCandidate;
+                    if (Math.Abs(bestZ - truth) <= 0.015) ++nearTruth;
+                }
+                details += " strip" + region + "=" +
+                    bestZ.ToString("F6") + "/" + bestDrop.ToString("F3") +
+                    "/" + (double.IsNaN(bestZ) ? "NA" :
+                        ((bestZ - candidate) * 1000).ToString("F1"));
+            }
+            Debug.Log("[WalkEdgeLight P0-F EdgeLocation] group=" + group +
+                " placement=" + placement + " size=" + size +
+                " patches=" + patches + " magnitudeMm=" + (magnitude * 1000).ToString("F0") +
+                " seed=" + seed + " offset=" + offset.ToString("F3") +
+                " truth=" + truth.ToString("F9") +
+                " candidate=" + candidate.ToString("F9") +
+                " located=" + located + " nearCandidate=" + nearCandidate +
+                " nearTruth=" + nearTruth +
+                " stripsZDropMmDeltaCandidateMm=" + details);
+        }
+
         // P0-F-46: spatial height diagnostic. This is not a production gate.
         private void P0F46SpatialDetail(double lo, double hi, double truth,
             int group, int placement, int size, int patches, double magnitude,
@@ -1358,6 +1426,8 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                                                     nearCount, farCount, dropMm);
                                                 P0F46SpatialDetail(lo, hi, truth, group, mode, size,
                                                     count, magnitude, seeds[si] + k, offsets[k]);
+                                                P0F47EdgeLocationDetail(lo, hi, truth, group, mode,
+                                                    size, count, magnitude, seeds[si] + k, offsets[k]);
                                             }
                                             if (!correct)
                                                 Debug.Log("[WalkEdgeLight P0-F GeometryFail] group=" + group +
