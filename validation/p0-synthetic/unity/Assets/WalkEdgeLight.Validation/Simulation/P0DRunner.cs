@@ -1222,6 +1222,50 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                 " dropMm=" + dropMm.ToString("F3") + " reason=" + reason);
         }
 
+        // P0-F-46: spatial height diagnostic. This is not a production gate.
+        private void P0F46SpatialDetail(double lo, double hi, double truth,
+            int group, int placement, int size, int patches, double magnitude,
+            int seed, float offset)
+        {
+            const int regions = 8;
+            double middle = (lo + hi) * 0.5;
+            int valid = 0, pass = 0, fail = 0;
+            string details = "";
+            for (int region = 0; region < regions; ++region)
+            {
+                var near = new List<double>();
+                var far = new List<double>();
+                double left = -1.0 + region * 0.25;
+                double right = left + 0.25;
+                foreach (var point in p0f44Points)
+                {
+                    if (point.X < left || point.X >= right) continue;
+                    if (point.Z >= middle - 0.065 && point.Z <= middle - 0.015)
+                        near.Add(point.Y);
+                    if (point.Z >= middle + 0.015 && point.Z <= middle + 0.065)
+                        far.Add(point.Y);
+                }
+                double drop = double.NaN;
+                if (near.Count >= 20 && far.Count >= 20)
+                {
+                    ++valid;
+                    drop = (MedianHeight(near) - MedianHeight(far)) * 1000;
+                    if (drop >= 10 && drop <= 30) ++pass;
+                    else ++fail;
+                }
+                details += " strip" + region + "=" + near.Count + "/" + far.Count +
+                    "/" + drop.ToString("F3");
+            }
+            Debug.Log("[WalkEdgeLight P0-F SpatialHeight] group=" + group +
+                " placement=" + placement + " size=" + size +
+                " patches=" + patches + " magnitudeMm=" + (magnitude * 1000).ToString("F0") +
+                " seed=" + seed + " offset=" + offset.ToString("F3") +
+                " truth=" + truth.ToString("F9") +
+                " lower=" + lo.ToString("F9") + " upper=" + hi.ToString("F9") +
+                " valid=" + valid + " pass=" + pass + " fail=" + fail +
+                " countsNearFarDropMm=" + details);
+        }
+
         public void RunP0F44GeometryDiagnostic()
         {
             if (sceneDefinition == null || sensorCamera == null)
@@ -1312,6 +1356,8 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                                                 P0F45LogRejection(group, mode, size, count, magnitude,
                                                     seeds[si] + k, offsets[k], truth, lo, hi,
                                                     nearCount, farCount, dropMm);
+                                                P0F46SpatialDetail(lo, hi, truth, group, mode, size,
+                                                    count, magnitude, seeds[si] + k, offsets[k]);
                                             }
                                             if (!correct)
                                                 Debug.Log("[WalkEdgeLight P0-F GeometryFail] group=" + group +
