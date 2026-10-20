@@ -784,6 +784,10 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                 int[] sizes = { 16, 32, 64 };
                 double[] magnitudes = { 0.02, 0.05, 0.10 };
                 float[] offsets = { 0f, 0.010f, 0.025f };
+                p0f49Pairs = p0f49OriginalHeight = p0f49OriginalSpatial = 0;
+                p0f49DisplacedHeight = p0f49DisplacedSpatial = 0;
+                p0f49DisplacedBoth = p0f49DisplacedWrong = 0;
+                p0f49Fingerprint = 14695981039346656037UL;
                 int[] seeds = { 20261009, 20261039, 20261049 };
                 for (int placement = 4; placement <= 5; ++placement)
                     foreach (int size in sizes)
@@ -1222,6 +1226,45 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                 " dropMm=" + dropMm.ToString("F3") + " reason=" + reason);
         }
 
+        // P0-F-49: comparable original/displaced candidate counts.
+        private int p0f49Pairs, p0f49OriginalHeight, p0f49OriginalSpatial;
+        private int p0f49DisplacedHeight, p0f49DisplacedSpatial, p0f49DisplacedBoth;
+        private int p0f49DisplacedWrong;
+        private ulong p0f49Fingerprint;
+
+        private void P0F49Mix(long value)
+        {
+            unchecked
+            {
+                p0f49Fingerprint ^= (ulong)value;
+                p0f49Fingerprint *= 1099511628211UL;
+            }
+        }
+
+        private int P0F49SpatialSupport(double center)
+        {
+            int aligned = 0;
+            for (int region = 0; region < 8; ++region)
+            {
+                double left = -1.0 + region * 0.25;
+                double right = left + 0.25;
+                var near = new List<double>();
+                var far = new List<double>();
+                foreach (var point in p0f44Points)
+                {
+                    if (point.X < left || point.X >= right) continue;
+                    if (point.Z >= center - 0.065 && point.Z <= center - 0.015)
+                        near.Add(point.Y);
+                    if (point.Z >= center + 0.015 && point.Z <= center + 0.065)
+                        far.Add(point.Y);
+                }
+                if (near.Count < 20 || far.Count < 20) continue;
+                double drop = (MedianHeight(near) - MedianHeight(far)) * 1000;
+                if (drop >= 10 && drop <= 30) ++aligned;
+            }
+            return aligned;
+        }
+
         // P0-F-48: diagnostic-only false candidate displacement. The synthetic
         // truth is used for scoring, never to accept a candidate.
         private void P0F48DisplacedCandidate(double lo, double hi, double truth,
@@ -1229,6 +1272,14 @@ namespace WalkEdgeLight.Validation.UnitySimulation
             int seed, float offset)
         {
             double center = (lo + hi) * 0.5;
+            int originalNear, originalFar;
+            double originalDrop;
+            bool originalHeight = CheckP0F44Height(lo, hi,
+                out originalNear, out originalFar, out originalDrop);
+            int originalAligned = P0F49SpatialSupport(center);
+            ++p0f49Pairs;
+            if (originalHeight) ++p0f49OriginalHeight;
+            if (originalAligned >= 4) ++p0f49OriginalSpatial;
             foreach (double displacement in new[] { -0.29, 0.29 })
             {
                 double shifted = center + displacement;
@@ -1256,6 +1307,10 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                     double localDrop = (MedianHeight(near) - MedianHeight(far)) * 1000;
                     if (localDrop >= 10 && localDrop <= 30) ++aligned;
                 }
+                ++p0f49DisplacedWrong; // +/-290 mm artificial negative controls.
+                if (heightPass) ++p0f49DisplacedHeight;
+                if (aligned >= 4) ++p0f49DisplacedSpatial;
+                if (heightPass && aligned >= 4) ++p0f49DisplacedBoth;
                 Debug.Log("[WalkEdgeLight P0-F DisplacedCandidate] group=" + group +
                     " placement=" + placement + " size=" + size +
                     " patches=" + patches + " magnitudeMm=" +
@@ -1412,6 +1467,13 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                                         for (int k = 0; k < offsets.Length; ++k)
                                         {
                                             ++cases;
+                                            P0F49Mix(group);
+                                            P0F49Mix(placement);
+                                            P0F49Mix(size);
+                                            P0F49Mix(count);
+                                            P0F49Mix((long)Math.Round(magnitude * 1000000));
+                                            P0F49Mix(seeds[si] + k);
+                                            P0F49Mix((long)Math.Round(offsets[k] * 1000000));
                                             int mode = group == 2 ? placement + 4 : placement;
                                             RunInternal(false, offsets[k], false, 320, 240,
                                                 false, 0, 20261009, 0, 20261009,
@@ -1491,6 +1553,17 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                                                     " geometryAccepted=" + pass);
                                         }
                 }
+                Debug.Log("[WalkEdgeLight P0-F PairedSummary] originalCases=" +
+                    p0f49Pairs + " originalHeightPass=" + p0f49OriginalHeight +
+                    " originalSpatial4Pass=" + p0f49OriginalSpatial +
+                    " displacedCases=" + p0f49DisplacedWrong +
+                    " displacedHeightPass=" + p0f49DisplacedHeight +
+                    " displacedSpatial4Pass=" + p0f49DisplacedSpatial +
+                    " displacedBothPass=" + p0f49DisplacedBoth +
+                    " spatialThreshold=4");
+                Debug.Log("[WalkEdgeLight P0-F InputFingerprint] cases=" + cases +
+                    " fnv64=" + p0f49Fingerprint.ToString("X16") +
+                    " scope=caseParametersOnly");
                 for (int group = 0; group < 3; ++group)
                     Debug.Log("[WalkEdgeLight P0-F GeometryRejectSummary] group=" + group +
                         " candidates=" + groupCandidates[group] +
