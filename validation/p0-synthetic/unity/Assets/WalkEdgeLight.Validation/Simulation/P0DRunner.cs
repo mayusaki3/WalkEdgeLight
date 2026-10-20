@@ -1222,6 +1222,53 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                 " dropMm=" + dropMm.ToString("F3") + " reason=" + reason);
         }
 
+        // P0-F-48: diagnostic-only false candidate displacement. The synthetic
+        // truth is used for scoring, never to accept a candidate.
+        private void P0F48DisplacedCandidate(double lo, double hi, double truth,
+            int group, int placement, int size, int patches, double magnitude,
+            int seed, float offset)
+        {
+            double center = (lo + hi) * 0.5;
+            foreach (double displacement in new[] { -0.29, 0.29 })
+            {
+                double shifted = center + displacement;
+                int nearCount, farCount;
+                double drop;
+                bool heightPass = CheckP0F44Height(lo + displacement,
+                    hi + displacement, out nearCount, out farCount, out drop);
+                int located = 0, aligned = 0;
+                for (int region = 0; region < 8; ++region)
+                {
+                    double left = -1.0 + region * 0.25;
+                    double right = left + 0.25;
+                    var near = new List<double>();
+                    var far = new List<double>();
+                    foreach (var point in p0f44Points)
+                    {
+                        if (point.X < left || point.X >= right) continue;
+                        if (point.Z >= shifted - 0.065 && point.Z <= shifted - 0.015)
+                            near.Add(point.Y);
+                        if (point.Z >= shifted + 0.015 && point.Z <= shifted + 0.065)
+                            far.Add(point.Y);
+                    }
+                    if (near.Count < 20 || far.Count < 20) continue;
+                    ++located;
+                    double localDrop = (MedianHeight(near) - MedianHeight(far)) * 1000;
+                    if (localDrop >= 10 && localDrop <= 30) ++aligned;
+                }
+                Debug.Log("[WalkEdgeLight P0-F DisplacedCandidate] group=" + group +
+                    " placement=" + placement + " size=" + size +
+                    " patches=" + patches + " magnitudeMm=" +
+                    (magnitude * 1000).ToString("F0") + " seed=" + seed +
+                    " offset=" + offset.ToString("F3") +
+                    " displacementMm=" + (displacement * 1000).ToString("F0") +
+                    " center=" + shifted.ToString("F9") +
+                    " truthDistanceMm=" + (Math.Abs(shifted - truth) * 1000).ToString("F3") +
+                    " heightPass=" + heightPass + " dropMm=" + drop.ToString("F3") +
+                    " located=" + located + " aligned=" + aligned);
+            }
+        }
+
         // P0-F-47: locate the strongest downward height transition independently
         // in each lateral region. Truth is printed for evaluation only.
         private void P0F47EdgeLocationDetail(double lo, double hi, double truth,
@@ -1427,6 +1474,8 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                                                 P0F46SpatialDetail(lo, hi, truth, group, mode, size,
                                                     count, magnitude, seeds[si] + k, offsets[k]);
                                                 P0F47EdgeLocationDetail(lo, hi, truth, group, mode,
+                                                    size, count, magnitude, seeds[si] + k, offsets[k]);
+                                                P0F48DisplacedCandidate(lo, hi, truth, group, mode,
                                                     size, count, magnitude, seeds[si] + k, offsets[k]);
                                             }
                                             if (!correct)
