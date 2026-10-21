@@ -334,6 +334,12 @@ namespace WalkEdgeLight.Validation.Editor
             runner.RunCorrelatedBandFailureDetail();
         }
 
+        [MenuItem("WalkEdgeLight/Probe/Run P0-F Spatial Threshold Matrix")]
+        internal static void RunP0FSpatialThresholdMatrix()
+        {
+            RunP0FGeometryDiagnostic();
+        }
+
         [MenuItem("WalkEdgeLight/Probe/Run P0-F Paired Candidate Matrix")]
         internal static void RunP0FPairedCandidateMatrix()
         {
