@@ -1444,6 +1444,15 @@ namespace WalkEdgeLight.Validation.UnitySimulation
             p0f44Capture = true;
             try
             {
+                p0f49Pairs = p0f49OriginalHeight = p0f49OriginalSpatial = 0;
+                p0f49DisplacedHeight = p0f49DisplacedSpatial = 0;
+                p0f49DisplacedBoth = p0f49DisplacedWrong = 0;
+                p0f49Fingerprint = 14695981039346656037UL;
+                int[,] spatialAccepted = new int[3, 5];
+                int[,] spatialCovered = new int[3, 5];
+                int[,] spatialWrong = new int[3, 5];
+                int[] spatialCandidates = new int[3];
+                int[] spatialCandidateWrong = new int[3];
                 int[] seeds = { 20261009, 20261039, 20261049 };
                 float[] offsets = { 0f, 0.010f, 0.025f };
                 int cases = 0, candidates = 0, geometryAccepted = 0;
@@ -1513,6 +1522,17 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                                             ++groupCandidates[group];
                                             double truth = sceneDefinition.EdgeZMetres + offsets[k];
                                             bool correct = ContainsWithTolerance(lo, hi, truth);
+                                            ++spatialCandidates[group];
+                                            if (!correct) ++spatialCandidateWrong[group];
+                                            int spatialSupport = P0F49SpatialSupport((lo + hi) * 0.5);
+                                            for (int threshold = 4; threshold <= 8; ++threshold)
+                                            {
+                                                int column = threshold - 4;
+                                                if (spatialSupport < threshold) continue;
+                                                ++spatialAccepted[group, column];
+                                                if (correct) ++spatialCovered[group, column];
+                                                else ++spatialWrong[group, column];
+                                            }
                                             int nearCount, farCount;
                                             double dropMm;
                                             bool pass = CheckP0F44Height(lo, hi,
@@ -1552,6 +1572,32 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                                                     " dropMm=" + dropMm.ToString("F3") +
                                                     " geometryAccepted=" + pass);
                                         }
+                }
+                for (int threshold = 4; threshold <= 8; ++threshold)
+                {
+                    int column = threshold - 4;
+                    int accepted = 0, covered = 0, wrong = 0;
+                    for (int group = 0; group < 3; ++group)
+                    {
+                        accepted += spatialAccepted[group, column];
+                        covered += spatialCovered[group, column];
+                        wrong += spatialWrong[group, column];
+                        Debug.Log("[WalkEdgeLight P0-F SpatialMatrixGroup] threshold=" +
+                            threshold + " group=" + group +
+                            " candidates=" + spatialCandidates[group] +
+                            " candidateWrong=" + spatialCandidateWrong[group] +
+                            " accepted=" + spatialAccepted[group, column] +
+                            " covered=" + spatialCovered[group, column] +
+                            " wrong=" + spatialWrong[group, column]);
+                    }
+                    Debug.Log("[WalkEdgeLight P0-F SpatialMatrix] threshold=" + threshold +
+                        " cases=" + cases + " candidates=" + candidates +
+                        " accepted=" + accepted + " covered=" + covered +
+                        " wrong=" + wrong + " rejectedCorrect=" +
+                        (candidates - (spatialCandidateWrong[0] +
+                            spatialCandidateWrong[1] + spatialCandidateWrong[2]) - covered) +
+                        " unbounded=" + (cases - candidates) +
+                        " scope=existingCandidatesOnly");
                 }
                 Debug.Log("[WalkEdgeLight P0-F PairedSummary] originalCases=" +
                     p0f49Pairs + " originalHeightPass=" + p0f49OriginalHeight +
