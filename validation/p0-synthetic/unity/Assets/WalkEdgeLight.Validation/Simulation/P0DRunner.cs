@@ -1436,6 +1436,76 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                 " countsNearFarDropMm=" + details);
         }
 
+        // P0-F-52: independently locate each region's best 20 mm step,
+        // then compare it with the detector candidate. Truth is evaluation-only.
+        private void P0F52EdgePositionDiagnostic(double lo, double hi, double truth,
+            int mode, int seed)
+        {
+            double candidate = (lo + hi) * 0.5;
+            int located = 0, aligned15 = 0, aligned25 = 0, nearTruth = 0;
+            var details = new System.Text.StringBuilder();
+            for (int region = 0; region < 8; ++region)
+            {
+                double left = -1.0 + region * 0.25;
+                double right = left + 0.25;
+                var points = new List<NumericsVector3>();
+                foreach (var point in p0f44Points)
+                    if (point.X >= left && point.X < right &&
+                        point.Z >= candidate - 0.415 && point.Z <= candidate + 0.415)
+                        points.Add(point);
+                double bestZ = double.NaN, bestDrop = double.NaN;
+                double bestScore = double.NegativeInfinity;
+                // Same scan as P0-F-47, including the 15..65 mm windows.
+                for (int step = -35; step <= 35; ++step)
+                {
+                    double z = candidate + step * 0.01;
+                    var near = new List<double>();
+                    var far = new List<double>();
+                    foreach (var point in points)
+                    {
+                        if (point.Z >= z - 0.065 && point.Z <= z - 0.015)
+                            near.Add(point.Y);
+                        if (point.Z >= z + 0.015 && point.Z <= z + 0.065)
+                            far.Add(point.Y);
+                    }
+                    if (near.Count < 20 || far.Count < 20) continue;
+                    double drop = (MedianHeight(near) - MedianHeight(far)) * 1000;
+                    if (drop < 10 || drop > 30) continue;
+                    double score = 10 - Math.Abs(drop - 20);
+                    if (score > bestScore)
+                    {
+                        bestScore = score;
+                        bestZ = z;
+                        bestDrop = drop;
+                    }
+                }
+                if (region > 0) details.Append(" ");
+                details.Append("r").Append(region).Append("=");
+                if (double.IsNaN(bestZ))
+                {
+                    details.Append("NA");
+                    continue;
+                }
+                ++located;
+                double delta = bestZ - candidate;
+                if (Math.Abs(delta) <= 0.015) ++aligned15;
+                if (Math.Abs(delta) <= 0.025) ++aligned25;
+                if (Math.Abs(bestZ - truth) <= 0.015) ++nearTruth;
+                details.Append(bestZ.ToString("F6")).Append("/")
+                    .Append(bestDrop.ToString("F3")).Append("/")
+                    .Append((delta * 1000).ToString("F1"));
+            }
+            Debug.Log("[WalkEdgeLight P0-F PositionAlignment] mode=" + mode +
+                " seed=" + seed + " candidate=" + candidate.ToString("F9") +
+                " truth=" + truth.ToString("F9") +
+                " correct=" + ContainsWithTolerance(lo, hi, truth) +
+                " located=" + located + " aligned15=" + aligned15 +
+                " aligned25=" + aligned25 + " nearTruth=" + nearTruth +
+                " aligned15AtLeast4=" + (aligned15 >= 4) +
+                " aligned25AtLeast4=" + (aligned25 >= 4) +
+                " regionsZDropDeltaMm=" + details);
+        }
+
         // P0-F-51: isolate the previously observed false band interval.
         // Truth is used only to label diagnostic results.
         public void RunP0F51FalseBandReproduction()
@@ -1507,6 +1577,8 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                         }
                         bool candidate = kept >= 4 && lo <= hi;
                         bool correct = candidate && ContainsWithTolerance(lo, hi, truth);
+                        if (candidate)
+                            P0F52EdgePositionDiagnostic(lo, hi, truth, mode, seed);
                         int support = candidate ? P0F49SpatialSupport((lo + hi) * 0.5) : 0;
                         int near, far;
                         double drop;
