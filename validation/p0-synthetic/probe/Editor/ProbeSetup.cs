@@ -334,6 +334,12 @@ namespace WalkEdgeLight.Validation.Editor
             runner.RunCorrelatedBandFailureDetail();
         }
 
+        [MenuItem("WalkEdgeLight/Probe/Run P0-F Position Alignment Diagnostic")]
+        internal static void RunP0FPositionAlignmentDiagnostic()
+        {
+            RunP0FFalseBandReproduction();
+        }
+
         [MenuItem("WalkEdgeLight/Probe/Run P0-F False Band Reproduction")]
         internal static void RunP0FFalseBandReproduction()
         {
