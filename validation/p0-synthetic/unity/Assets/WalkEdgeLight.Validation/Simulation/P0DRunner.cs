@@ -1436,6 +1436,101 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                 " countsNearFarDropMm=" + details);
         }
 
+        // P0-F-51: isolate the previously observed false band interval.
+        // Truth is used only to label diagnostic results.
+        public void RunP0F51FalseBandReproduction()
+        {
+            if (sceneDefinition == null || sensorCamera == null)
+                throw new InvalidOperationException("P0-F references missing.");
+            bool previous = p0f44Capture;
+            p0f44Capture = true;
+            try
+            {
+                foreach (int mode in new[] { 4, 5, 6 })
+                    foreach (int seed in new[] { 20261041, 20261050, 20261051 })
+                    {
+                        const float offset = 0.025f;
+                        const int size = 32;
+                        const double magnitude = 0.02;
+                        RunInternal(false, offset, false, 320, 240,
+                            false, 0, 20261009, 0, 20261009,
+                            0, 20261009, magnitude, false,
+                            160, size, 1, seed, true, mode);
+
+                        var lows = new List<double>();
+                        var highs = new List<double>();
+                        int valid = 0;
+                        for (int s = 0; s < Strips; ++s)
+                            if (lastDetailStripValid[s])
+                            {
+                                ++valid;
+                                lows.Add(lastDetailStripLower[s]);
+                                highs.Add(lastDetailStripUpper[s]);
+                            }
+                        double truth = sceneDefinition.EdgeZMetres + offset;
+                        if (valid == 0)
+                        {
+                            Debug.Log("[WalkEdgeLight P0-F FalseBand] mode=" + mode +
+                                " seed=" + seed + " candidate=False valid=0");
+                            continue;
+                        }
+                        lows.Sort();
+                        highs.Sort();
+                        int n = valid;
+                        double medLo = n % 2 == 1 ? lows[n / 2] :
+                            (lows[n / 2 - 1] + lows[n / 2]) * 0.5;
+                        double medHi = n % 2 == 1 ? highs[n / 2] :
+                            (highs[n / 2 - 1] + highs[n / 2]) * 0.5;
+                        int kept = 0;
+                        double lo = double.NegativeInfinity;
+                        double hi = double.PositiveInfinity;
+                        var stripBounds = new System.Text.StringBuilder();
+                        for (int s = 0; s < Strips; ++s)
+                        {
+                            if (s > 0) stripBounds.Append(" ");
+                            if (!lastDetailStripValid[s])
+                            {
+                                stripBounds.Append("s").Append(s).Append("=invalid");
+                                continue;
+                            }
+                            bool retain = Math.Abs(lastDetailStripLower[s] - medLo) <= 0.004 &&
+                                Math.Abs(lastDetailStripUpper[s] - medHi) <= 0.004;
+                            stripBounds.Append("s").Append(s).Append("=")
+                                .Append(lastDetailStripLower[s].ToString("F6"))
+                                .Append("/")
+                                .Append(lastDetailStripUpper[s].ToString("F6"))
+                                .Append(retain ? ":keep" : ":exclude");
+                            if (!retain) continue;
+                            ++kept;
+                            lo = Math.Max(lo, lastDetailStripLower[s]);
+                            hi = Math.Min(hi, lastDetailStripUpper[s]);
+                        }
+                        bool candidate = kept >= 4 && lo <= hi;
+                        bool correct = candidate && ContainsWithTolerance(lo, hi, truth);
+                        int support = candidate ? P0F49SpatialSupport((lo + hi) * 0.5) : 0;
+                        int near, far;
+                        double drop;
+                        bool global = candidate && CheckP0F44Height(lo, hi,
+                            out near, out far, out drop);
+                        Debug.Log("[WalkEdgeLight P0-F FalseBand] mode=" + mode +
+                            " seed=" + seed + " offset=" + offset.ToString("F3") +
+                            " valid=" + valid + " kept=" + kept +
+                            " candidate=" + candidate + " truth=" + truth.ToString("F9") +
+                            " lower=" + (candidate ? lo.ToString("F9") : "NA") +
+                            " upper=" + (candidate ? hi.ToString("F9") : "NA") +
+                            " correct=" + correct + " globalPass=" + global +
+                            " spatialSupport=" + support +
+                            " spatial4Pass=" + (candidate && support >= 4) +
+                            " spatial5Pass=" + (candidate && support >= 5) +
+                            " strips=" + stripBounds);
+                    }
+            }
+            finally
+            {
+                p0f44Capture = previous;
+            }
+        }
+
         public void RunP0F44GeometryDiagnostic()
         {
             if (sceneDefinition == null || sensorCamera == null)
