@@ -1483,6 +1483,9 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                 " injected=" + lastInjectedDepthHash.ToString("X16") +
                 " points=" + points.ToString("X16") +
                 " pointCount=" + p0f44Points.Count +
+                " rawValid=" + lastValidBeforeDropout +
+                " injectedValid=" + lastValidAfterDropout +
+                " injectedChanges=" + lastOutlierCount +
                 " strips=" + strips.ToString("X16") +
                 " signature=" + signature);
             return signature;
@@ -1493,7 +1496,9 @@ namespace WalkEdgeLight.Validation.UnitySimulation
             if (sceneDefinition == null || sensorCamera == null)
                 throw new InvalidOperationException("P0-F references missing.");
             bool previous = p0f44Capture;
+            bool previousDepthCapture = p0f28Capture;
             p0f44Capture = true;
+            p0f28Capture = true;
             try
             {
                 string first = P0F53ReplayCase(5, 20261051, "target-first");
@@ -1509,6 +1514,7 @@ namespace WalkEdgeLight.Validation.UnitySimulation
             finally
             {
                 p0f44Capture = previous;
+                p0f28Capture = previousDepthCapture;
                 p0f44Points.Clear();
                 sceneDefinition.Build();
                 Physics.SyncTransforms();
@@ -4823,6 +4829,8 @@ namespace WalkEdgeLight.Validation.UnitySimulation
 
         private double RunInternal(bool slanted, float edgeOffset = 0f, bool verbose = true, int imageWidth = 160, int imageHeight = 120, bool diagnoseBounds = false, double gaussianSigmaMetres = 0, int gaussianSeed = 20261009, double dropoutFraction = 0, int dropoutSeed = 20261009, double outlierFraction = 0, int outlierSeed = 20261009, double outlierMagnitudeMetres = 0.05, bool farQuantileDiagnostic = false, int clusterWidth = 0, int clusterHeight = 0, int clusterCount = 0, int clusterSeed = 20261009, bool quorumDiagnostic = false, int clusterPlacementMode = 0)
         {
+            lastRawDepthHash = 0UL;
+            lastInjectedDepthHash = 0UL;
             lastLowerBound = double.NaN;
             lastRawLowerBound = double.NaN;
             lastValidBeforeDropout = 0;
