@@ -334,6 +334,12 @@ namespace WalkEdgeLight.Validation.Editor
             runner.RunCorrelatedBandFailureDetail();
         }
 
+        [MenuItem("WalkEdgeLight/Probe/Run P0-F Depth Fingerprint")]
+        internal static void RunP0FDepthFingerprint()
+        {
+            RunP0FReplayFingerprint();
+        }
+
         [MenuItem("WalkEdgeLight/Probe/Run P0-F Replay Fingerprint")]
         internal static void RunP0FReplayFingerprint()
         {
