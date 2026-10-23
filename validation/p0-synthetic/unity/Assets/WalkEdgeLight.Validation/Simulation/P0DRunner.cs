@@ -1436,6 +1436,85 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                 " countsNearFarDropMm=" + details);
         }
 
+        // P0-F-53: replay one band case in an interleaved order. Hashes are
+        // diagnostic snapshots, not a claim of independent sensor evidence.
+        private string P0F53ReplayCase(int mode, int seed, string label)
+        {
+            const float offset = 0.025f;
+            RunInternal(false, offset, false, 320, 240,
+                false, 0, 20261009, 0, 20261009,
+                0, 20261009, 0.02, false,
+                160, 32, 1, seed, true, mode);
+            const ulong prime = 1099511628211UL;
+            ulong strips = 14695981039346656037UL;
+            for (int s = 0; s < Strips; ++s)
+            {
+                strips ^= lastDetailStripValid[s] ? 1UL : 0UL;
+                strips *= prime;
+                if (!lastDetailStripValid[s]) continue;
+                foreach (double value in new[] {
+                    lastDetailStripLower[s], lastDetailStripUpper[s],
+                    lastDetailStripNear95[s], lastDetailStripFar2[s] })
+                {
+                    foreach (byte b in BitConverter.GetBytes(value))
+                    {
+                        strips ^= b;
+                        strips *= prime;
+                    }
+                }
+            }
+            ulong points = 14695981039346656037UL;
+            foreach (var point in p0f44Points)
+                foreach (float value in new[] { point.X, point.Y, point.Z })
+                    foreach (byte b in BitConverter.GetBytes(value))
+                    {
+                        points ^= b;
+                        points *= prime;
+                    }
+            int valid = 0;
+            for (int s = 0; s < Strips; ++s)
+                if (lastDetailStripValid[s]) ++valid;
+            string signature = lastRawDepthHash.ToString("X16") + "/" +
+                lastInjectedDepthHash.ToString("X16") + "/" +
+                points.ToString("X16") + "/" + strips.ToString("X16");
+            Debug.Log("[WalkEdgeLight P0-F ReplayFingerprint] label=" + label +
+                " mode=" + mode + " seed=" + seed + " valid=" + valid +
+                " raw=" + lastRawDepthHash.ToString("X16") +
+                " injected=" + lastInjectedDepthHash.ToString("X16") +
+                " points=" + points.ToString("X16") +
+                " pointCount=" + p0f44Points.Count +
+                " strips=" + strips.ToString("X16") +
+                " signature=" + signature);
+            return signature;
+        }
+
+        public void RunP0F53ReplayFingerprint()
+        {
+            if (sceneDefinition == null || sensorCamera == null)
+                throw new InvalidOperationException("P0-F references missing.");
+            bool previous = p0f44Capture;
+            p0f44Capture = true;
+            try
+            {
+                string first = P0F53ReplayCase(5, 20261051, "target-first");
+                string repeat = P0F53ReplayCase(5, 20261051, "target-repeat");
+                P0F53ReplayCase(4, 20261041, "interleave-left");
+                P0F53ReplayCase(6, 20261050, "interleave-right");
+                string after = P0F53ReplayCase(5, 20261051, "target-after");
+                Debug.Log("[WalkEdgeLight P0-F ReplaySummary] " +
+                    "repeatEqual=" + (first == repeat) +
+                    " afterInterleaveEqual=" + (first == after) +
+                    " scope=rawInjectedPointsAndStripBounds");
+            }
+            finally
+            {
+                p0f44Capture = previous;
+                p0f44Points.Clear();
+                sceneDefinition.Build();
+                Physics.SyncTransforms();
+            }
+        }
+
         // P0-F-52: independently locate each region's best 20 mm step,
         // then compare it with the detector candidate. Truth is evaluation-only.
         private void P0F52EdgePositionDiagnostic(double lo, double hi, double truth,
