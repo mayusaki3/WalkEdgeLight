@@ -1441,8 +1441,9 @@ namespace WalkEdgeLight.Validation.UnitySimulation
         private string P0F53ReplayCase(int mode, int seed, string label)
         {
             const float offset = 0.025f;
+            // P0-F-57: enable existing bounds diagnostics for replay cases only.
             RunInternal(false, offset, false, 320, 240,
-                false, 0, 20261009, 0, 20261009,
+                true, 0, 20261009, 0, 20261009,
                 0, 20261009, 0.02, false,
                 160, 32, 1, seed, true, mode);
             const ulong prime = 1099511628211UL;
