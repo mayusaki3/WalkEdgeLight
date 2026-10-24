@@ -1488,6 +1488,18 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                 " injectedChanges=" + lastOutlierCount +
                 " strips=" + strips.ToString("X16") +
                 " signature=" + signature);
+            // P0-F-56: diagnostic-only per-strip snapshot. Keep fingerprint inputs unchanged.
+            for (int s = 0; s < Strips; ++s)
+            {
+                bool stripValid = lastDetailStripValid[s];
+                Debug.Log("[WalkEdgeLight P0-F StripDetail] label=" + label +
+                    " mode=" + mode + " seed=" + seed +
+                    " strip=" + s + " valid=" + stripValid +
+                    " lower=" + (stripValid ? lastDetailStripLower[s].ToString("R") : "NA") +
+                    " upper=" + (stripValid ? lastDetailStripUpper[s].ToString("R") : "NA") +
+                    " near95=" + (stripValid ? lastDetailStripNear95[s].ToString("R") : "NA") +
+                    " far2=" + (stripValid ? lastDetailStripFar2[s].ToString("R") : "NA"));
+            }
             return signature;
         }
 
