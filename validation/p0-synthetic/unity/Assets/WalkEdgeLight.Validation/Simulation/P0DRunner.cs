@@ -5009,6 +5009,19 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                         bestBin = b;
                     }
                 }
+                // P0-F-59: inspect per-bin sample counts and mean heights around both edges.
+                if (diagnoseBounds)
+                {
+                    foreach (int diagnosticBin in new[] { 27, 28, 29, 30, 31, 32, 39, 40, 41, 42, 43 })
+                    {
+                        Debug.Log("[WalkEdgeLight P0-F BinDiag] strip=" + s +
+                            " bin=" + diagnosticBin +
+                            " count=" + cells[s, diagnosticBin].Count +
+                            " valid=" + valid[diagnosticBin] +
+                            " mean=" + (valid[diagnosticBin] ? means[diagnosticBin].ToString("R") : "NA") +
+                            " selectedBin=" + bestBin);
+                    }
+                }
                 // P0-F-58: observe candidate ranking without changing selection.
                 if (diagnoseBounds)
                 {
