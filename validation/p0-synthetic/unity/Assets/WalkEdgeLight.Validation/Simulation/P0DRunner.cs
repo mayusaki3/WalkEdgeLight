@@ -5009,6 +5009,32 @@ namespace WalkEdgeLight.Validation.UnitySimulation
                         bestBin = b;
                     }
                 }
+                // P0-F-58: observe candidate ranking without changing selection.
+                if (diagnoseBounds)
+                {
+                    foreach (int candidateBin in new[] { 29, 30, 41 })
+                    {
+                        double beforeSum = 0, afterSum = 0;
+                        int beforeCount = 0, afterCount = 0;
+                        for (int j = candidateBin - 1; j >= Math.Max(0, candidateBin - 8) && beforeCount < 2; --j)
+                            if (valid[j]) { beforeSum += means[j]; ++beforeCount; }
+                        for (int j = candidateBin; j < Math.Min(Bins, candidateBin + 8) && afterCount < 2; ++j)
+                            if (valid[j]) { afterSum += means[j]; ++afterCount; }
+                        bool evaluable = beforeCount == 2 && afterCount == 2;
+                        double beforeMean = beforeCount > 0 ? beforeSum / beforeCount : double.NaN;
+                        double afterMean = afterCount > 0 ? afterSum / afterCount : double.NaN;
+                        Debug.Log("[WalkEdgeLight P0-F CandidateDiag] strip=" + s +
+                            " candidateBin=" + candidateBin +
+                            " selectedBin=" + bestBin +
+                            " beforeCount=" + beforeCount +
+                            " afterCount=" + afterCount +
+                            " beforeMean=" + beforeMean.ToString("R") +
+                            " afterMean=" + afterMean.ToString("R") +
+                            " delta=" + (afterMean - beforeMean).ToString("R") +
+                            " evaluable=" + evaluable +
+                            " selectedBestMagnitude=" + best.ToString("R"));
+                    }
+                }
                 if (bestBin < 0)
                 {
                     if (diagnoseBounds)
